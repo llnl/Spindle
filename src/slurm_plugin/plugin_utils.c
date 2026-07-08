@@ -254,11 +254,11 @@ int isFEHost(char **hostlist, unsigned int num_hosts)
    int feresult = -1;
    
    for (i = 0; i < num_hosts; i++) {
-      if (!last_host || strcmp(hostlist[i], last_host) == 1) {
+      if (!last_host || strcmp(hostlist[i], last_host) > 0) {
          last_host = hostlist[i];
       }
    }
-   sdprintf(2, "last_host = %s\n", last_host ? last_host : NULL);
+   sdprintf(2, "last_host = %s\n", last_host ? last_host : "(null)");
    if (!last_host) {
       error = errno;
       sdprintf(1, "ERROR: Could not get current system's hostname: %s\n", strerror(error));      
@@ -515,6 +515,15 @@ int signalSpankSessionEnd(spindle_args_t *params)
 
 char *unique_file = NULL;
 
+void cleanup_unique_file()
+{
+   if (unique_file) {
+      unlink(unique_file);
+      free(unique_file);
+      unique_file = NULL;
+   }
+}
+
 #define UNIQUE_FILE_NAME "spindle_unique"
 
 int isBEProc(spindle_args_t *params, unsigned int exit_phase)
@@ -687,8 +696,10 @@ void push_env(spank_t spank, saved_env_t **env)
    e->new_spindledebug = readSpankEnv(spank, "SPINDLE_DEBUG");
    e->old_spindledebug = getenv("SPINDLE_DEBUG");
 
-   if (e->new_pwd)
-      chdir(e->new_pwd);
+   if (e->new_pwd) {
+      if (chdir(e->new_pwd) == -1)
+         sdprintf(1, "WARNING: Could not chdir to %s: %s\n", e->new_pwd, strerror(errno));
+   }
 
    if (e->new_home)
       setenv("HOME", e->new_home, 1);
@@ -727,8 +738,10 @@ void pop_env(saved_env_t *env)
    else
       unsetenv("SPINDLE_DEBUG");
 
-   if (env->old_pwd)
-      chdir(env->old_pwd);
+   if (env->old_pwd) {
+      if (chdir(env->old_pwd) == -1)
+         sdprintf(1, "WARNING: Could not chdir to %s: %s\n", env->old_pwd, strerror(errno));
+   }
 
    if (env->new_home)
       free(env->new_home);
@@ -815,7 +828,7 @@ int dropPrivilegeAndRun(dpr_function_t func, uid_t uid, void *input, char **outp
          exit(-1);
       }
       if (output_len) {
-         result = safe_write(pipe_fds[1], output_str, output_len+1);
+         result = safe_write(pipe_fds[1], child_output_str, output_len+1);
          if (result != output_len+1) {
             error = errno;
             fprintf(stderr, "Spindle error.  Could not write result string to pipe: %s\n", strerror(error));
@@ -989,7 +1002,11 @@ pid_t grandchild_fork()
    int result, fork_result = -1;
 
    pipe_fds[0] = pipe_fds[1] = -1;
-   pipe(pipe_fds);
+   result = pipe(pipe_fds);
+   if (result == -1) {
+      sdprintf(1, "ERROR: pipe() failed in grandchild_fork.  Aborting spindle\n");
+      return -1;
+   }
 
    child_pid = fork();
    if (child_pid == -1) {

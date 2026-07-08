@@ -189,10 +189,9 @@ int slurm_spank_init(spank_t spank, int ac, char *argv[]) {
             prolog_alloc_mode = 1;
          slurm_free_ctl_conf(conf);
       } else {
-         sdprintf(1, "Could not read Slurm config.\n");
+         sdprintf(1, "Could not read Slurm config, falling back to non-prolog launch.\n");
       }
    }
-   sdprintf(2, "prolog_alloc_mode = %d\n", prolog_alloc_mode);
 #endif
 
    return 0;
@@ -435,7 +434,8 @@ int slurm_spank_job_prolog(spank_t spank, int ac, char *argv[]) {
    // Change to $SLURM_JOB_WORK_DIR so logs go to right place.
    work_dir = getenv("SLURM_JOB_WORK_DIR");
    if (work_dir) {
-      chdir(work_dir);
+      if (chdir(work_dir) == -1)
+         sdprintf(1, "WARNING: Could not chdir to %s: %s\n", work_dir, strerror(errno));
    }
 
    err = spank_get_item(spank, S_JOB_UID, &userid);
@@ -548,6 +548,7 @@ int slurm_spank_task_init(spank_t spank, int site_argc, char *site_argv[])
    }
 
    if (params.opts & OPT_OFF) {
+     pop_env(env);
      return 0;
    }
 
@@ -1220,9 +1221,7 @@ static int launchBE(spank_t spank, spindle_args_t *params)
    else
       sdprintf(1, "spindleRunBE completed.  Session finishing.\n");
 
-   if (unique_file) unlink(unique_file);
-   free(unique_file);
-   unique_file = NULL;
+   cleanup_unique_file();
 
    exit(result);
 

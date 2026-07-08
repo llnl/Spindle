@@ -45,6 +45,7 @@ char **getHostsParse(unsigned int num_hosts, const char *shortlist);
 
 int isFEHost(char **hostlist, unsigned int num_hosts);
 extern char *unique_file;
+void cleanup_unique_file();
 int isBEProc(spindle_args_t *params, unsigned int exit_phase);
 
 int doesFEExitSocketExist(spindle_args_t *params);
