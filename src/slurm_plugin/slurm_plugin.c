@@ -27,6 +27,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <stdio.h>
 #include <fcntl.h>
 
+#include <slurm/slurm.h>
 #include <slurm/spank.h>
 
 #include "spindle_launch.h"
@@ -102,6 +103,7 @@ static __thread spank_t current_spank;
 static const char *user_options = NULL;
 static int enable_spindle = 0;
 static int start_session = 0;
+static int prolog_alloc_mode = 0;
 
 extern char *parse_location(char *loc, number_t number);
 extern char *realize(char *path);
@@ -156,7 +158,14 @@ static int should_use_session(spank_t spank) {
       if (session_env) 
          return 1;
       err = spank_option_getopt(spank, &session_option, NULL);
-      return (err == ESPANK_SUCCESS); 
+      return (err == ESPANK_SUCCESS);
+   }
+
+   /* In the allocator, we are running in the same process that
+    * handled the command line arguments and can check the
+    * flag directly. */
+   if (context == S_CTX_ALLOCATOR) {
+      return start_session;
    }
 
    return 0;
@@ -168,6 +177,24 @@ int slurm_spank_init(spank_t spank, int ac, char *argv[]) {
    if (context == S_CTX_ALLOCATOR) {
       spank_option_register(spank, &session_option);
    }
+
+#if defined(PROLOG_FLAG_ALLOC)
+   /* Check whether Slurm is configured to run the prolog at
+    * allocation time (PROLOG_FLAG_ALLOC), or the default mode
+    * where the prolog runs on the first step. */
+   if (!prolog_alloc_mode) {
+      slurm_conf_t *conf = NULL;
+      if (slurm_load_ctl_conf(0, &conf) == SLURM_SUCCESS) {
+         if (conf->prolog_flags & PROLOG_FLAG_ALLOC)
+            prolog_alloc_mode = 1;
+         slurm_free_ctl_conf(conf);
+      } else {
+         sdprintf(1, "Could not read Slurm config.\n");
+      }
+   }
+   sdprintf(2, "prolog_alloc_mode = %d\n", prolog_alloc_mode);
+#endif
+
    return 0;
 }
 
@@ -185,6 +212,17 @@ int slurm_spank_init_post_opt(spank_t spank, int ac, char *argv[]) {
       }
       if (start_session) {
          setenv(SPANK_SPINDLE_USE_SESSION, "1", 1);
+      }
+
+      /* With PrologFlags=Alloc, forward env vars to job control here;
+         them. Without PrologFlags=Alloc, this forwarding happens later
+         in local context (srun). */
+      if (prolog_alloc_mode && start_session) {
+         int result = forward_environment_to_job_control(spank);
+         if (result == -1) {
+            slurm_error("ERROR: Spindle plugin error. Unable to forward environment variables to job control.\n");
+            return result;
+         }
       }
    }
    return 0;
@@ -314,8 +352,11 @@ int slurm_spank_local_user_init(spank_t spank, int ac, char *argv[])
       goto done;
    }
 
-   use_session = should_use_session(spank); 
+   use_session = should_use_session(spank);
    if (!use_session)
+      goto done;
+
+   if (prolog_alloc_mode) 
       goto done;
 
    result = process_spindle_args(spank, ac, argv, &params, NULL, NULL, use_session);
@@ -384,9 +425,11 @@ int slurm_spank_job_prolog(spank_t spank, int ac, char *argv[]) {
       return 0;
    
    
-   envVal = getenv("SPANK_SPINDLE_RSHLAUNCH");
-   if (envVal && strcmp(envVal, "1") == 0) 
-      return 0;
+   if (!prolog_alloc_mode) {
+      envVal = getenv("SPANK_SPINDLE_RSHLAUNCH");
+      if (envVal && strcmp(envVal, "1") == 0)
+         return 0;
+   }
 
    // The prolog starts in the user's home directory.
    // Change to $SLURM_JOB_WORK_DIR so logs go to right place.
@@ -508,8 +551,9 @@ int slurm_spank_task_init(spank_t spank, int site_argc, char *site_argv[])
      return 0;
    }
 
-   /* When using a session without RSHLAUNCH, handle start in job prolog, not here. */
-   if ((!use_session) || (params.opts & OPT_RSHLAUNCH)) {
+   /* When using a session without RSHLAUNCH, handle start in job prolog, not here.
+      With PrologFlags=Alloc, session+RSHLAUNCH is also handled in the prolog. */
+   if ((!use_session) || ((params.opts & OPT_RSHLAUNCH) && !prolog_alloc_mode)) {
       start_params.spank = spank;
       start_params.site_argc = site_argc;
       start_params.site_argv = site_argv;
@@ -560,8 +604,9 @@ static int handleStart(void *params, char **output_str)
       return 0;
    }
 
-   // Only initialize a session once
-   if (use_session && (args.opts & OPT_RSHLAUNCH)) {
+   /* Only initialize a session once. In prolog context (S_CTX_JOB_SCRIPT),
+    * there is no step yet, so skip the step ID check. */
+   if (use_session && (args.opts & OPT_RSHLAUNCH) && spank_context() != S_CTX_JOB_SCRIPT) {
       err = get_stepid(spank, &stepid);
       if (err != ESPANK_SUCCESS) {
           slurm_error("ERROR: Spindle plugin error. Could not get step id.");
