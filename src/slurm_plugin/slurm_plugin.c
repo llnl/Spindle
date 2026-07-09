@@ -471,6 +471,8 @@ int slurm_spank_job_epilog(spank_t spank, int ac, char *argv[]) {
    uid_t userid;
    exit_params_t exit_params;
 
+   handle_forwarded_environment();
+
    use_session = should_use_session(spank);
 
    if (!use_session)

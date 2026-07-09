@@ -360,6 +360,12 @@ static int createFEExitSocket(char *socket_path)
    int result, sock = -1, retval = -1;
 
    debug_printf("Creating unix socket for session at %s\n", socket_path);
+
+   if (strlen(socket_path) > sizeof(local.sun_path)-1) {
+      err_printf("Session exit socket path too long: %s\n", socket_path);
+      goto done;
+   }
+
    sock = socket(AF_UNIX, SOCK_STREAM, 0);
    if (sock == -1) {
       int error = errno;
@@ -367,8 +373,14 @@ static int createFEExitSocket(char *socket_path)
       goto done;
    }
 
+   memset(&local, 0, sizeof(local));
    local.sun_family = AF_UNIX;
    strncpy(local.sun_path, socket_path, sizeof(local.sun_path)-1);
+
+   /* If there's an exit socket left over from a previous run that
+    * failed before removing it, remove it here */
+   unlink(socket_path);
+
    result = bind(sock, (struct sockaddr *) &local, sizeof(local));
    if (result == -1) {
       int error = errno;
@@ -419,32 +431,39 @@ int waitForSpankSessionEnd(spindle_args_t *params)
       goto done;
 
    sockfd = createFEExitSocket(socket_path);
-   if (sockfd == -1) 
+   if (sockfd == -1)
       goto done;
-   
-   fd = accept(sockfd, NULL, NULL);
-   if (fd == -1) {
-      error = errno;
-      err_printf("Could not accept session exit socket connection: %s\n", strerror(error));
-      goto done;
-   }
 
-   do {
-      result = read(fd, &msg, 1);
-   } while (result == -1 && errno == EINTR);
-   if (result == -1) {
-      error = errno;
-      err_printf("Failed to read from session exit socket: %s\n", strerror(error));
-      goto done;
+   for (;;) {
+      fd = accept(sockfd, NULL, NULL);
+      if (fd == -1) {
+         error = errno;
+         err_printf("Could not accept session exit socket connection: %s\n", strerror(error));
+         goto done;
+      }
+
+      msg = 0;
+      do {
+         result = read(fd, &msg, 1);
+      } while (result == -1 && errno == EINTR);
+
+      if (result == 1 && msg == 'q') {
+         close(fd);
+         fd = -1;
+         sdprintf(2, "Received session exit message\n");
+         retval = 0;
+         break;
+      }
+
+      if (result == -1) {
+         error = errno;
+         err_printf("Failed read from session exit socket: %s\n", strerror(error));
+      } else {
+         sdprintf(2, "Received message other than exit on exit socket");
+      }
+      close(fd);
+      fd = -1;
    }
-   if (msg != 'q') {
-      error = errno;
-      err_printf("Recieved incorrect msg character: %c\n", msg);
-      goto done;
-   }
-   
-   sdprintf(2, "Received session exit message\n");   
-   retval = 0;
 
   done:
    if (fd != -1)
@@ -478,6 +497,12 @@ int signalSpankSessionEnd(spindle_args_t *params)
       goto done;
    }
 
+   if (strlen(socket_path) > sizeof(saddr.sun_path)-1) {
+      err_printf("Session exit socket path too long: %s\n", socket_path);
+      goto done;
+   }
+
+   memset(&saddr, 0, sizeof(saddr));
    saddr.sun_family = AF_UNIX;
    strncpy(saddr.sun_path, socket_path, sizeof(saddr.sun_path)-1);
 
