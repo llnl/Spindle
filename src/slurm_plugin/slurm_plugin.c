@@ -772,6 +772,8 @@ static int fillInArgs(spank_t spank, spindle_args_t *args, int argc, char **argv
    char *symbolic_commpath, *orig_commpath;
    char *err_string;
 
+   current_spank = spank;
+
    args->unique_id = unique_id;
    args->number = (number_t) args->unique_id;
    result = fillInSpindleArgsCmdlineFE(args, SPINDLE_FILLARGS_NOUNIQUEID | SPINDLE_FILLARGS_NONUMBER,
@@ -803,14 +805,13 @@ static int fillInArgs(spank_t spank, spindle_args_t *args, int argc, char **argv
        return -1;
    }
    args->commpath = realize(orig_commpath);
-   free(orig_commpath);
+   if (args->commpath != orig_commpath)
+      free(orig_commpath);
    if (!args->commpath) {
       slurm_error("Spindle Options Error: Could not resolve commpath location\n");
       sdprintf(1, "ERROR: Could not realize commpath from '%s'\n", symbolic_commpath);
       return -1;
    }
-
-   current_spank = spank;
 
    return 0;
 }

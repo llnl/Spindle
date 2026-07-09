@@ -1326,7 +1326,7 @@ char *readSpankEnv(spank_t spank, const char *envname)
       free(buffer);
       buffer = (char *) malloc(buffer_size);
    }
-   if (err == ESPANK_ENV_NOEXIST) {
+   if (err == ESPANK_ENV_NOEXIST || err == ESPANK_NOT_REMOTE || err == ESPANK_BAD_ARG) {
       free(buffer);
       buffer = getenv(envname);
       return buffer ? strdup(buffer) : NULL;
