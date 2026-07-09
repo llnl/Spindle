@@ -415,8 +415,8 @@ int slurm_spank_job_prolog(spank_t spank, int ac, char *argv[]) {
    start_params_t start_params;
    spank_err_t err;
    int result, use_session;
-   char *result_str, *work_dir, *envVal;
-   
+   char *result_str = NULL, *work_dir, *envVal;
+
    handle_forwarded_environment();
    use_session = should_use_session(spank);
 
@@ -455,15 +455,18 @@ int slurm_spank_job_prolog(spank_t spank, int ac, char *argv[]) {
       return -1;
    }
 
+   if (result_str)
+      free(result_str);
+
    return 0;
 }
 
-/* job_epilog called on every compute node when allocation ends, 
+/* job_epilog called on every compute node when allocation ends,
  * regardless of whether any step ever ran on that node and
  * even if the prolog never ran. */
 int slurm_spank_job_epilog(spank_t spank, int ac, char *argv[]) {
    int result, use_session;
-   char *result_str;
+   char *result_str = NULL;
    spank_err_t err;
    uid_t userid;
    exit_params_t exit_params;
@@ -486,12 +489,15 @@ int slurm_spank_job_epilog(spank_t spank, int ac, char *argv[]) {
    exit_params.site_argv = argv;
 
    result = dropPrivilegeAndRun(handleExit, userid, &exit_params, &result_str);
-   
+
    if (result == -1) {
       slurm_error("Failed to run handleExit.  Spindle may not shutdown properly\n");
       return -1;
    }
-   
+
+   if (result_str)
+      free(result_str);
+
    return 0;
 }
 
@@ -630,7 +636,7 @@ static int handleStart(void *params, char **output_str)
 int slurm_spank_task_exit(spank_t spank, int site_argc, char *site_argv[])
 {
    spank_context_t context;
-   char *result_str;
+   char *result_str = NULL;
    int result, use_session;
    uid_t userid;
    spank_err_t err;
@@ -671,11 +677,15 @@ int slurm_spank_task_exit(spank_t spank, int site_argc, char *site_argv[])
    push_env(spank, &saved_env);   
    result = dropPrivilegeAndRun(handleExit, userid, &exit_params, &result_str);
    pop_env(saved_env);
-   
+
    if (result == -1) {
       slurm_error("ERROR: Failed to run handleExit.  Spindle may not shutdown properly\n");
       return -1;
    }
+
+   if (result_str)
+      free(result_str);
+
    return 0;
 }
 
@@ -890,6 +900,7 @@ static int get_num_hosts_step(spank_t spank)
    num_hosts_str = readSpankEnv(spank, "SLURM_STEP_NUM_NODES");
    if (num_hosts_str) {
       result = atoi(num_hosts_str);
+      free(num_hosts_str);
       if (result > 0)
          return (int) result;
    }
@@ -1018,7 +1029,7 @@ static int get_spindle_args(spank_t spank, spindle_args_t *params)
       goto done;
    }
 
-   result = fillInArgs(spank, params, spindle_argc, spindle_argv, unique_id);
+   result = fillInArgs(spank, params, spindle_argc, spindle_argv, unique_id, 0);
    if (result == -1)
       goto done;
    
@@ -1121,7 +1132,7 @@ static int launch_spindle(spank_t spank, spindle_args_t *params)
       free(hostlist_job);
    }
    if (hostaddrlist) {
-      for (i = 0; i < num_hosts; i++) free(hostaddrlist[i]);
+      for (i = 0; i < num_hosts_fe; i++) free(hostaddrlist[i]);
       free(hostaddrlist);
    }
    

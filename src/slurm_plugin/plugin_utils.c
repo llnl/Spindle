@@ -240,7 +240,7 @@ char **getHostAddrSinfo(unsigned int num_hosts, char **hostlist)
       free(sinfo_cmdline);
    if (!ret && hostaddrlist) {
       for (i = 0; i < num_hosts; i++) free(hostaddrlist[i]);
-      free(hostlist);
+      free(hostaddrlist);
    }
    return ret;
 }
@@ -549,7 +549,7 @@ int isBEProc(spindle_args_t *params, unsigned int exit_phase)
       strlen(hostname) + 1 +
       strlen(session_id_str) + 1;
 
-   unique_file = (char *) malloc(sizeof(char*) * unique_file_len);
+   unique_file = (char *) malloc(sizeof(char) * unique_file_len);
    snprintf(unique_file, unique_file_len, "%s/%s.%s.%s.%s", realized_dir, UNIQUE_FILE_NAME, phase_name, hostname, session_id_str);
 
    spindle_mkdir(realized_dir);
@@ -1025,7 +1025,7 @@ pid_t grandchild_fork()
          sdprintf(1, "ERROR collecting pid after fork.  Aborting spindle\n");
          goto done;
       }
-      if (!WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+      if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
          sdprintf(1, "ERROR with invalid child exit during grandchild fork.  Aborting spindle\n");
          goto done;
       }
