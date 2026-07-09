@@ -568,6 +568,10 @@ int slurm_spank_task_init(spank_t spank, int site_argc, char *site_argv[])
       start_params.site_argv = site_argv;
 
       result = handleStart(&start_params, &result_str);
+      if (result == -1) {
+         sdprintf(1, "Error launching spindle. Aborting spindle\n");
+         goto done;
+      }
    }
 
    result = prepApp(spank, &params);
@@ -696,16 +700,19 @@ static spank_err_t get_stepid(spank_t spank, uint32_t *stepid)
 {
    char *slurm_step_id_s;
    spank_err_t err;
-   uint64_t combined;
-   
-   slurm_step_id_s = getenv("SLURM_STEP_ID");
-   if (slurm_step_id_s) {
-      *stepid = (uint32_t) atol(slurm_step_id_s);
-   } else {
-      err = spank_get_item(spank, S_JOB_STEPID, stepid);
-      if (err != ESPANK_SUCCESS) {
-         return err;
+
+   /* Only get step ID from env var in job script context */
+   if (spank_context() == S_CTX_JOB_SCRIPT) {
+      slurm_step_id_s = getenv("SLURM_STEP_ID");
+      if (slurm_step_id_s) {
+         *stepid = (uint32_t) atol(slurm_step_id_s);
+         return ESPANK_SUCCESS;
       }
+   }
+
+   err = spank_get_item(spank, S_JOB_STEPID, stepid);
+   if (err != ESPANK_SUCCESS) {
+      return err;
    }
 
    return ESPANK_SUCCESS;
@@ -796,6 +803,12 @@ static int fillInArgs(spank_t spank, spindle_args_t *args, int argc, char **argv
        return -1;
    }
    args->commpath = realize(orig_commpath);
+   free(orig_commpath);
+   if (!args->commpath) {
+      slurm_error("Spindle Options Error: Could not resolve commpath location\n");
+      sdprintf(1, "ERROR: Could not realize commpath from '%s'\n", symbolic_commpath);
+      return -1;
+   }
 
    current_spank = spank;
 

@@ -560,6 +560,10 @@ int isBEProc(spindle_args_t *params, unsigned int exit_phase)
    int fd = -1, error;
    
    realized_dir = locSpecificDir(params);
+   if (!realized_dir) {
+      sdprintf(1, "ERROR: Could not resolve location directory in isBEProc\n");
+      goto done;
+   }
 
    gethostname(hostname, sizeof(hostname));
    hostname[sizeof(hostname)-1] = '\0';
