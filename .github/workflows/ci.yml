@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
@@ -131,7 +131,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
@@ -184,7 +184,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
@@ -251,7 +251,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
@@ -309,7 +309,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out Spindle
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Docker Compose
         uses: docker/setup-compose-action@16feee727cbdc83b6a014e6cc26fec4a79bcf30c
