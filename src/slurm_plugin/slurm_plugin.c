@@ -213,10 +213,7 @@ int slurm_spank_init_post_opt(spank_t spank, int ac, char *argv[]) {
          setenv(SPANK_SPINDLE_USE_SESSION, "1", 1);
       }
 
-      /* With PrologFlags=Alloc, forward env vars to job control here;
-         them. Without PrologFlags=Alloc, this forwarding happens later
-         in local context (srun). */
-      if (prolog_alloc_mode && start_session) {
+      if (start_session) {
          int result = forward_environment_to_job_control(spank);
          if (result == -1) {
             slurm_error("ERROR: Spindle plugin error. Unable to forward environment variables to job control.\n");
@@ -355,7 +352,7 @@ int slurm_spank_local_user_init(spank_t spank, int ac, char *argv[])
    if (!use_session)
       goto done;
 
-   if (prolog_alloc_mode) 
+   if (prolog_alloc_mode)
       goto done;
 
    result = process_spindle_args(spank, ac, argv, &params, NULL, NULL, use_session);
