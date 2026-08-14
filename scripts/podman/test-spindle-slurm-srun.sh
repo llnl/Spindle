@@ -207,6 +207,9 @@ run_instance() {
 
         # Run tests
         echo "[Instance $INSTANCE_ID] Running Spindle testsuite..."
+        echo "[Instance $INSTANCE_ID] Press any key to run tests..."
+        read -n 1 -s -r < /dev/tty
+        echo ""
         if podman exec "${NAME_PREFIX}-head" bash -c "cd Spindle-build/testsuite && export SPINDLE_DEBUG=3 && salloc -n${WORKERS} -N${WORKERS} ./runTests ${WORKERS}"; then
             echo ""
             echo "[Instance $INSTANCE_ID] =========================================="
@@ -221,7 +224,14 @@ run_instance() {
             RESULT=1
         fi
         echo ""
-        echo "[Instance $INSTANCE_ID] Test complete (cleanup will happen in serial phase)"
+        echo "[Instance $INSTANCE_ID] Test complete"
+        echo "[Instance $INSTANCE_ID] Containers are running. You can now:"
+        echo "[Instance $INSTANCE_ID]   podman exec -it ${NAME_PREFIX}-head bash"
+        echo "[Instance $INSTANCE_ID]   podman exec -it ${NAME_PREFIX}-node-1 bash"
+        echo "[Instance $INSTANCE_ID] Press any key to cleanup and exit..."
+        read -n 1 -s -r < /dev/tty
+        echo ""
+        echo "[Instance $INSTANCE_ID] Cleanup will happen in serial phase"
         echo ""
 
         exit $RESULT
