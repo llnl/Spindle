@@ -210,10 +210,27 @@ bool SlurmLauncher::spawnJob(app_id_t id, int app_argc, char **app_argv)
       return false;
    }
    else if (pid == 0) {
-      execvp(*app_argv, app_argv);
+      // Inject --export to propagate SPINDLE_DEBUG and SPINDLE_TEST to remote nodes
+      // Build new argv with --export=SPINDLE_DEBUG,SPINDLE_TEST,TMPDIR,TEMPDIR inserted after srun
+      int new_argc = app_argc + 1;
+      char **new_argv = (char **) malloc((new_argc + 1) * sizeof(char *));
+      new_argv[0] = app_argv[0];  // srun
+      new_argv[1] = const_cast<char *>("--export=SPINDLE_DEBUG,SPINDLE_TEST,TMPDIR,TEMPDIR");
+      for (int i = 1; i < app_argc; i++) {
+         new_argv[i + 1] = app_argv[i];
+      }
+      new_argv[new_argc] = NULL;
+
+      debug_printf("Execing srun with --export: ");
+      for (int i = 0; new_argv[i]; i++) {
+         bare_printf("%s ", new_argv[i]);
+      }
+      bare_printf("\n");
+
+      execvp(*new_argv, new_argv);
       int error = errno;
-      fprintf(stderr, "Spindle failed to run %s: %s\n", app_argv[0], strerror(error));
-      err_printf("Failed to run application %s: %s\n", app_argv[0], strerror(error));
+      fprintf(stderr, "Spindle failed to run %s: %s\n", new_argv[0], strerror(error));
+      err_printf("Failed to run application %s: %s\n", new_argv[0], strerror(error));
       exit(-1);
    }
    app_pids[pid] = id;
