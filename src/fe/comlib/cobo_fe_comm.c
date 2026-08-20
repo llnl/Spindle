@@ -178,7 +178,9 @@ int ldcs_audit_server_fe_md_close ( void *data  ) {
    out_msg.data = NULL;
 
    cobo_server_get_root_socket(&root_fd);
-   write_msg(root_fd, &out_msg);
+   /* We use write_msg_nosignal to avoid SIGPIPE if the socket is broken.
+    * We're exiting here, so ignore if the server already exited. */
+   write_msg_nosignal(root_fd, &out_msg);
    return cobo_server_close();
 }
 

@@ -16,6 +16,8 @@ fi
 
 if test "x$SKIP_NONSESSION" != "xtrue"; then
 
+./logd_kill_test
+CHECK_RETCODE
 ./run_driver --dependency --push
 CHECK_RETCODE
 ./run_driver --dlopen --push

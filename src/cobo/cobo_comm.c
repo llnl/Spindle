@@ -241,3 +241,61 @@ int write_msg(int fd, ldcs_message_t *msg)
 
    return 0;
 }
+
+/* ll_send_nosignal is a variation on ll_write which uses
+ * send(..., MSG_NOSIGNAL) to avoid SIGPIPE when writing to
+ * a broken socket.
+ */
+int ll_send_nosignal(int fd, void *buf, size_t count)
+{
+   int error;
+   ssize_t result;
+   size_t pos = 0;
+   unsigned char *cbuf = (unsigned char *) buf;
+
+   debug_printf3("Have %lu bytes at %p to write to network\n", count, buf);
+
+   while (pos < count) {
+      result = send(fd, cbuf + pos, count - pos, MSG_NOSIGNAL);
+      debug_printf3("Wrote %d bytes at %p to network: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x...\n", (int) result, cbuf + pos,
+                    result > 0 ? ((int) cbuf[pos+0]) : 0,
+                    result > 1 ? ((int) cbuf[pos+1]) : 0,
+                    result > 2 ? ((int) cbuf[pos+2]) : 0,
+                    result > 3 ? ((int) cbuf[pos+3]) : 0,
+                    result > 4 ? ((int) cbuf[pos+4]) : 0,
+                    result > 5 ? ((int) cbuf[pos+5]) : 0,
+                    result > 6 ? ((int) cbuf[pos+6]) : 0,
+                    result > 7 ? ((int) cbuf[pos+7]) : 0);
+      if (result == -1 && (errno == EINTR || errno == EAGAIN))
+         continue;
+      if (result <= 0) {
+         error = errno;
+         err_printf("Error writing to cobo FD %d: %s\n", fd, strerror(error));
+         return -1;
+      }
+      pos += result;
+   }
+   debug_printf3("Sent %lu bytes to fd %d\n", count, fd);
+   return 0;
+}
+
+/* write_msg_nosignal is a variation on write_msg
+ * which uses ll_send_nosignal instead of ll_send
+ * to avoid SIGPIPE when writing to a broken socket.
+ */
+int write_msg_nosignal(int fd, ldcs_message_t *msg)
+{
+   int result = ll_send_nosignal(fd, msg, sizeof(*msg));
+   if (result == -1) {
+      return -1;
+   }
+
+   if (msg->header.len && msg->data) {
+      result = ll_send_nosignal(fd, msg->data, msg->header.len);
+      if (result == -1) {
+         return -1;
+      }
+   }
+
+   return 0;
+}

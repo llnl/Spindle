@@ -10,6 +10,50 @@ export SPINDLE_TEST=1
 export SPINDLE=SPINDLE_EXEC
 export PATH=$PATH:.
 
+# This is a command to run on a node to check whether the log daemon
+# has already exited, and, after a delay, forcibly kill it.
+# This ensures that each test connects to a fresh daemon.
+LOGD_WAIT_CMD='
+SECONDS=0
+TMP="${TMPDIR:-${TEMPDIR:-/tmp}}"
+LOCK="$TMP/spindle_log_lock"
+TIMEOUT="${SPINDLE_LOGD_SHUTDOWN_TIMEOUT:-15}"
+while PID=$(cat "$LOCK" 2>/dev/null) && kill -0 "$PID" 2>/dev/null ; do
+    if [ $SECONDS -ge $TIMEOUT ]; then
+        echo "WARNING: $(hostname): spindle_logd (pid $PID) still running after $TIMEOUT sec; killing it" >&2
+        kill -9 "$PID" 2>/dev/null
+        break
+    fi
+    sleep 0.1
+done
+rm -f "$TMP/spindle_log" "$TMP/spindle_test" "$TMP/spindle_log_lock" "$TMP/spindle_log_reset"
+'
+# Runs LOGD_WAIT_CMD on all nodes in job
+wait_for_logd_exit() {
+    bash -c "$LOGD_WAIT_CMD"
+    if [ "x$TEST_RM" == "xslurm" -o "x$TEST_RM" == "xslurm-plugin" ] && [ "x$SLURM_NNODES" != "x" ] ; then
+        srun --overlap -N $SLURM_NNODES -n $SLURM_NNODES bash -c "$LOGD_WAIT_CMD"
+    elif [ "x$TEST_RM" == "xflux" ] ; then
+        flux exec -r all bash -c "$LOGD_WAIT_CMD"
+    fi
+}
+
+SESSION_ACTIVE=false
+if [ "x$SESSION_ID" != "x" ] || [ "x$SPANK_SPINDLE_USE_SESSION" != "x" ] ; then
+    SESSION_ACTIVE=true
+fi
+
+# If we're not running in a session, wait for the log daemon to exit
+# before proceeding to the actual test.
+if [ $SESSION_ACTIVE == false ] && [ "x$1" != "x--end-session" ] ; then
+    wait_for_logd_exit
+fi
+
+# If --wait-for-logd was passed, run ONLY the log daemon check.
+if [ $1 == --wait-for-logd ] ; then
+    exit 0
+fi
+
 if [ $1 == --start-session ] ; then
     # With SPANK plugin, sessions are started by argument to salloc/sbatch instead
     if [ "x$TEST_RM" == "xslurm-plugin" ] ; then
