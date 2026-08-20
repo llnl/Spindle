@@ -1341,7 +1341,11 @@ static int handleExit(void *params, char **output_str)
       // The task_exit callback is run for _each proc_, so we use
       // isBEProc to pick only one proc per node to call spindleExitBE.
       is_be_leader = isBEProc(&args, 1);
-      if (is_be_leader) { 
+      if (is_be_leader == -1) {
+         sdprintf(1, "ERROR: Could not determine BE leader in handleExit\n");
+         return -1;
+      }
+      if (is_be_leader) {
          if (use_session || (args.opts & OPT_RSHLAUNCH)) {
             result = signalSpankSessionEnd(&args); 
             if (result == -1) {

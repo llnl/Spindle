@@ -510,7 +510,7 @@ int signalSpankSessionEnd(spindle_args_t *params)
    if (result == -1) {
       int error = errno;
       err_printf("Failed to connect to session exit socket: %s\n", strerror(error));
-      return -1;
+      goto done;
    }
 
    msg = 'q';
