@@ -25,6 +25,16 @@ following line to `/etc/slurm/plugstack.conf`:
 required /path/to/spindle/lib/libspindleslurm.so
 ```
 
+### Site-wide default options
+
+Any arguments listed after the library path in `plugstack.conf` are
+passed to Spindle as site-wide default options, applied to every
+Spindle launch on the cluster. For example:
+
+```
+required /path/to/spindle/lib/libspindleslurm.so --level=low
+```
+
 ## Session launch modes
 
 The manner in which Spindle sessions are started varies depending on 
@@ -35,7 +45,7 @@ on each compute node before any step runs within the allocation.
 The most straightforward way to do this is to configure the cluster
 to run job prologs at allocation time.  If your `slurm.conf` includes 
 `PrologFlags=Alloc` (or another flag that implies it: `Contain`, 
-`RunInJob`, `X11`, `ForceRequeueOnFail`, or `NoHold`), then sessions
+`RunInJob`, `X11`, or `ForceRequeueOnFail`), then sessions
 will be started on each node of the allocation at the time the allocation
 is made. 
 
