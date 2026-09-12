@@ -42,4 +42,9 @@ containers/spindle-slurm-ubuntu/testing/mariadb.env
 containers/spindle-slurm-ubuntu/testing-srun/conf/slurmdbd.conf
 containers/spindle-slurm-ubuntu/testing-srun/mariadb.env
 
+# spindle-podman
+.podman-state.json
+.podman-metrics.log
+.podman-logs
+
 
