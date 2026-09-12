@@ -684,6 +684,10 @@ static int munge_encrypt_packet(void *packet, size_t packet_size,
    }
    return return_result;
 #else
+   (void)packet;
+   (void)packet_size;
+   (void)packet_buffer;
+   (void)packet_buffer_size;
    error_printf("Handshake not compiled with munge support\n");
    return HSHAKE_INTERNAL_ERROR;
 #endif
@@ -1073,6 +1077,10 @@ static int munge_decrypt_packet(void *recvd_packet, size_t recvd_packet_size,
 
    return return_result;
 #else
+   (void)recvd_packet;
+   (void)recvd_packet_size;
+   (void)recvd_buffer;
+   (void)recvd_buffer_size;
    error_printf("Handshake not compiled with munge support\n");
    return HSHAKE_INTERNAL_ERROR;
 #endif
