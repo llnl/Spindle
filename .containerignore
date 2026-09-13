@@ -21,3 +21,6 @@ out.*
 
 # Exclude investigation directory
 podman-concurrency-investigation/
+
+# Exclude debugging artifacts
+debugging/

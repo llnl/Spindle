@@ -1,0 +1,21 @@
+# Build
+podman rm -f spindlenode-interactive
+./scripts/podman/build-spindle-serial-interactive.sh
+# Start
+./scripts/podman/run-spindle-serial-interactive.sh
+# Connect
+podman exec -it spindlenode-interactive bash
+# Enable core dumps
+ulimit -c unlimited
+# Set up spindle config file
+mkdir -p /home/spindleuser/Spindle-inst/etc/spindle
+cat > /home/spindleuser/Spindle-inst/etc/spindle/spindle.conf <<'EOF'
+noclean = true
+EOF
+# cd
+cd Spindle-build/testsuite
+# Run the problematic test
+SPINDLE_DEBUG=3 SPINDLE_FLAGS="--noclean" ./run_driver --thrdopen --push
+# Core file analysis
+RELOCATED=$(find /tmp/commpath/cachepath -name "*test_driver" -type f | grep -v "\.so" | head -1)
+gdb ${RELOCATED} /tmp/core.test_driver.$(ls -t *.core | head -1 )
