@@ -366,7 +366,7 @@ static int validateCandidatePath( char *candidatePath, char **realizedPath, char
     if( parsedCandidatePath ){
        realizedCandidatePath = realize( parsedCandidatePath );
        if( realizedCandidatePath ){
-           rc = spindle_mkdir( parsedCandidatePath );
+           rc = spindle_mkdir( realizedCandidatePath );
            if( 0 == rc ){
                // candidatePath is going to be freed in the calling function.
                //   symbolicPath needs a strdup().  parsedPath() and realizedPath()

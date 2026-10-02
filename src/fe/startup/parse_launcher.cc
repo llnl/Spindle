@@ -291,12 +291,7 @@ int ModifyArgv::modifyCmdLine()
    char options_str[32];
    snprintf(options_str, 32, "%lu", (unsigned long) params->opts);
    string options(options_str);
-   
-   int rc = getFirstValidPath( params->commpaths, &( params->commpath ), params->number );
-   if( rc != 0 ){
-       return -1;
-   }
-   string commpath(params->commpath);
+   int rc;
    
    char number_str[32];
    snprintf(number_str, 32, "%lu", (unsigned long) params->number);
@@ -323,7 +318,7 @@ int ModifyArgv::modifyCmdLine()
       if (p == parser->appExecutableAt()) {
 #if defined(os_bluegene)
          string bg_env_str = parser->getParser()->getBGString();
-         parser->getParser()->addBGEnvStr(n, new_argv, bg_env_str, default_libstr, intercept_libstr, commpath, number, options, shmcache_size);
+         parser->getParser()->addBGEnvStr(n, new_argv, bg_env_str, default_libstr, intercept_libstr, params->commpaths, number, options, shmcache_size);
 #else
          char **a_argv;
          int a_argc;
