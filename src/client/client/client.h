@@ -105,7 +105,8 @@ extern int intercept_fork;
 extern void int_spindle_test_log_msg(char *buffer);
 
 typedef void* (*malloc_sig_t)(size_t);
-malloc_sig_t get_libc_malloc();
+malloc_sig_t get_app_malloc();
+void mark_startup_done();
 
 void *get_libc_abort_msg();
 

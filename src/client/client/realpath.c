@@ -81,7 +81,7 @@ static char *spindlerp_ext_strdup(const char *s)
    size_t len;
    malloc_sig_t mallocf;
 
-   mallocf = get_libc_malloc();
+   mallocf = get_app_malloc();
    if (!mallocf) {
       err_printf("Could not lookup malloc function for realpath result\n");
       return NULL;

@@ -196,6 +196,25 @@ CHECK_RETCODE
 ./run_driver --serial ./close_range_test
 CHECK_RETCODE
 
+export LONG_NEEDED_PATH=`readelf -d ./long_needed_path_test | sed -n 's/.*Shared library: \[\(.*liborigintarget\.so\)\]$/\1/p'`
+export LONG_DLOPEN_PATH=`printf '/%.0s' $(seq 300)`$PWD/liblongdlopen.so
+export LONG_DLOPEN_NEEDED_PATH=`readelf -d ./liblongdlopen.so | sed -n 's/.*Shared library: \[\(.*liblongdlopendep\.so\)\]$/\1/p'`
+
+./run_driver --serial ./long_needed_path_test
+CHECK_RETCODE
+
+./run_driver --serial ./long_needed_app_malloc_test
+CHECK_RETCODE
+
+./run_driver --serial ./long_needed_lib_malloc_test
+CHECK_RETCODE
+
+./run_driver --serial ./realpath_free_test
+CHECK_RETCODE
+
+./run_driver --serial ./realpath_free_lib_test
+CHECK_RETCODE
+
 if [[ $GLOBAL_RESULT != 0 ]]; then
     echo SOME TESTS FAILED
     exit -1

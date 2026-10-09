@@ -63,7 +63,7 @@ void patch_on_linkactivity(struct link_map *lmap)
          strcpy(lmap->l_name, last_orig_name);
       }
       else {
-         malloc_sig_t app_malloc = get_libc_malloc();
+         malloc_sig_t app_malloc = get_app_malloc();
          if (app_malloc) {
             len = strlen(last_orig_name) + 2;
             oname = (char *) app_malloc(len);
@@ -71,6 +71,11 @@ void patch_on_linkactivity(struct link_map *lmap)
                strncpy(oname, last_orig_name, len);
                lmap->l_name = oname;
             }
+         }
+         else {
+            /* Before LA_ACT_CONSISTENT, the application's malloc isn't available.
+             * Allocate in Spindle's heap instead. */
+            lmap->l_name = spindle_strdup(last_orig_name);
          }
       }
    }

@@ -27,11 +27,11 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 
 /**
  * This file works around a glibc problem when LD_AUDIT is enable, where the DTV (dynamic thread vector)
- * gets allocated using ld.so's rtld_malloc function, then later gets resized by libc.so's realloc function
+ * gets allocated using ld.so's rtld_malloc function, then later gets resized by the application's realloc function
  * (SPINDLE_SRC/scripts/dtvtest/ has a reproducer that can make this happen--you need lots of libraries with TLS). 
  * 
  * We'll work around this problem by A) recognizing when this will happen, and B) copying the DTV to a 
- * memory region properly controlled by libc.so's malloc. 
+ * memory region properly controlled by the application's malloc.
  * We recognize this because in the buggy case, the DTV will change values twice before libc.so enters a 
  * consistent state. 
  * We copy the DTV to a proper malloc region by getting its pointer out of TLS space. DTV is a vector, and
@@ -120,7 +120,7 @@ void patchDTV_check()
 
    debug_printf2("Reallocating dtv to work around glibc bug. initial_dtv = %p ; dtv = %p\n",
                  initial_dtv, dtv);
-   malloc_sig_t app_malloc = get_libc_malloc();
+   malloc_sig_t app_malloc = get_app_malloc();
    if (!app_malloc) {
       debug_printf("Warning: Could not lookup up application malloc to realloc dtv. App may be prone to crashes during dlopen's\n");
       return;

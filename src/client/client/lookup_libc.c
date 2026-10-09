@@ -46,6 +46,7 @@ struct gnu_hash_header {
 };
 
 static malloc_sig_t mallocfunc = NULL;
+static int startup_done = 0;
 
 static void *volatile abort_msg_addr = NULL;
 
@@ -205,21 +206,6 @@ int lookup_libc_symbols()
 
       result = -1;
       if (gnu_hash)
-         result = lookup_gnu_hash_symbol("malloc", symtab, strtab, (struct gnu_hash_header *) gnu_hash);
-      if (elf_hash && result == -1)
-         result = lookup_elf_hash_symbol("malloc", symtab, strtab, (ElfW(Word) *) elf_hash);
-      if (result == -1) {        
-         debug_printf3("Warning, Could not find symbol malloc in libc\n");
-         not_found++;
-      }
-      else {
-         mallocfunc = (malloc_sig_t) (symtab[result].st_value + libc->l_addr);
-         debug_printf3("Bound mallocfunc to %p\n", mallocfunc);
-         found++;
-      }
-
-      result = -1;
-      if (gnu_hash)
          result = lookup_gnu_hash_symbol("__abort_msg", symtab, strtab, (struct gnu_hash_header *) gnu_hash);
       if (elf_hash && result == -1)
          result = lookup_elf_hash_symbol("__abort_msg", symtab, strtab, (ElfW(Word) *) elf_hash);
@@ -292,12 +278,52 @@ int lookup_libdl_symbols()
    return found;
 }
 
-malloc_sig_t get_libc_malloc()
+static int lookup_defined_symbol(struct link_map *lmap, const char *name, void **addr)
 {
+   signed long result = -1;
+   INIT_DYNAMIC(lmap);
+
+   if (gnu_hash)
+      result = lookup_gnu_hash_symbol(name, symtab, strtab, (struct gnu_hash_header *) gnu_hash);
+   if (elf_hash && result == -1)
+      result = lookup_elf_hash_symbol(name, symtab, strtab, (ElfW(Word) *) elf_hash);
+   /* We only want to find a defined symbol; check if it's undefined */
+   if (result == -1 || symtab[result].st_shndx == SHN_UNDEF)
+      return -1;
+   *addr = (void *) (symtab[result].st_value + lmap->l_addr);
+   return 0;
+}
+
+malloc_sig_t get_app_malloc()
+{
+   struct link_map *l;
+   void *addr;
+
+   /* If we haven't gotten LA_ACT_CONSISTENT yet, it's not safe to call the app's malloc */
+   if (!startup_done)
+      return NULL;
+
    if (mallocfunc)
       return mallocfunc;
-   lookup_libc_symbols();
+
+   /* Iterate over the link map looking for a library that defines malloc. */
+   for (l = _r_debug.r_map; l != NULL; l = l->l_next) {
+      /* Skip vDSO when iterating as symbol lookup crashes in it */
+      if (l->l_name && (strstr(l->l_name, "linux-vdso") || strstr(l->l_name, "linux-gate")))
+         continue;
+      if (lookup_defined_symbol(l, "malloc", &addr) == 0) {
+         debug_printf3("Bound app malloc to %p in %s\n", addr,
+                       (l->l_name && *l->l_name) ? l->l_name : "executable");
+         mallocfunc = (malloc_sig_t) addr;
+         break;
+      }
+   }
    return mallocfunc;
+}
+
+void mark_startup_done()
+{
+   startup_done = 1;
 }
 
 void *get_libc_abort_msg()

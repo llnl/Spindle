@@ -23,7 +23,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #if defined(NEWTHREAD_LOCALE_BUG)
 #include <sys/syscall.h>
 
-static __thread int fixed_locale __attribute__((tls_model("local-dynamic"))) = 0;
+static __thread int fixed_locale __attribute__((tls_model("initial-exec"))) = 0;
 
 static pid_t gettid()
 {

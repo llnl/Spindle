@@ -43,6 +43,7 @@ void spindle_la_activity (uintptr_t *cookie, unsigned int flag)
                  "???");
    restore_pathpatch();   
    if (flag == LA_ACT_CONSISTENT) {
+      mark_startup_done();
       patchDTV_check();
       lookup_libc_symbols();
       updateDataBindingQueue(0);

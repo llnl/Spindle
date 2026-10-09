@@ -222,7 +222,7 @@ static int crash_query_server(const char *site, const char *corepath,
 static void crash_handler_entry(int sig, siginfo_t *info, void *uctx)
 {
    /* Reentrancy flag to detect if we crash again while handling the crash. */
-   static __thread sig_atomic_t reentering = 0;
+   static __thread sig_atomic_t reentering __attribute__((tls_model("initial-exec"))) = 0;
 
    /* We need to restore errno before returning. */
    int saved_errno = errno;

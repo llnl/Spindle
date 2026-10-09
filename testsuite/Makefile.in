@@ -360,9 +360,12 @@ BUILT_SOURCES = libtest10.so libtest11.so libtest12.so libtest13.so \
 	alias/aliastest.py exec_shell.sh exec_shell.tcsh \
 	exec_shell_expected_output exec_shell exec_shell_env.sh \
 	libbigtls1024.so libbigtls204800.so libbigtls1048576.so \
-	close_range_test crash_test crash_test_fixedaddr \
-	crash_test_pie libcrashfuncs.so libcrashctor.so \
-	libcrashfixed.so run_crash_tests.sh
+	close_range_test libtagmalloc.so liblongdlopendep.so \
+	liblongdlopen.so long_needed_path_test \
+	long_needed_app_malloc_test long_needed_lib_malloc_test \
+	realpath_free_test realpath_free_lib_test crash_test \
+	crash_test_fixedaddr crash_test_pie libcrashfuncs.so \
+	libcrashctor.so libcrashfixed.so run_crash_tests.sh
 @BGQ_BLD_FALSE@DYNAMIC_FLAG = 
 @BGQ_BLD_TRUE@DYNAMIC_FLAG = -dynamic
 @BGQ_BLD_FALSE@IS_BLUEGENE = false
@@ -379,6 +382,10 @@ test_driver_libsLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite $(MPI_CLDFLAGS) -L$
 REGLIB_SRC = $(srcdir)/registerlib.c
 LD_FUNCDICT = -L$(top_builddir)/testsuite -lfuncdict
 EXTRA_DIST = run_crash_tests_template.sh crash_test.c crash_functions.c crash_functions.h libcrashfuncs.c libcrashctor.c libcrashfixed.c
+LONG_NEEDED_PAD = $$(printf '/%.0s' $$(seq 300))
+LONG_NEEDED_TARGET = origin_dir/origin_subdir/liborigintarget.so
+LONG_NEEDED_LIBS = -Wl,--no-as-needed -lc "$(LONG_NEEDED_PAD)$(abs_builddir)/$(LONG_NEEDED_TARGET)" -ldl
+TAGMALLOC_LIBS = -L. -Wl,--no-as-needed -ltagmalloc -Wl,-rpath,$(abs_builddir)
 CLEANFILES = libtest10.c libtest11.c libtest12.c libtest13.c \
 	libtest14.c libtest15.c libtest16.c libtest17.c libtest18.c \
 	libtest19.c libtest20.c libtest10.so libtest50.c libtest50.so \
@@ -408,7 +415,10 @@ CLEANFILES = libtest10.c libtest11.c libtest12.c libtest13.c \
 	exec_shell crash_test crash_test_fixedaddr crash_test_pie \
 	libcrashfuncs.so libcrashctor.so libcrashfixed.so \
 	run_crash_tests.sh libbigtls204800.so libbigtls1048576.so \
-	close_range_test
+	close_range_test libtagmalloc.so liblongdlopendep.so \
+	liblongdlopen.so long_needed_path_test \
+	long_needed_app_malloc_test long_needed_lib_malloc_test \
+	realpath_free_test realpath_free_lib_test
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -1165,6 +1175,30 @@ exec_shell: $(srcdir)/exec_shell.c
 
 close_range_test: $(srcdir)/close_range_test.c
 	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $<
+
+liblongdlopendep.so: $(srcdir)/long_dlopen_lib.c
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ -shared -fPIC -DDEP $<
+
+liblongdlopen.so: $(srcdir)/long_dlopen_lib.c liblongdlopendep.so
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ -shared -fPIC $(srcdir)/long_dlopen_lib.c -Wl,--no-as-needed "$(LONG_NEEDED_PAD)$(abs_builddir)/liblongdlopendep.so"
+
+libtagmalloc.so: $(srcdir)/tagmalloc.c
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -o $@ -shared -fPIC $<
+
+long_needed_path_test: $(srcdir)/long_needed_path_test.c $(LONG_NEEDED_TARGET)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(LONG_NEEDED_LIBS)
+
+long_needed_app_malloc_test: $(srcdir)/long_needed_path_test.c $(srcdir)/tagmalloc.c $(LONG_NEEDED_TARGET)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -fPIE -pie -o $@ $(srcdir)/long_needed_path_test.c $(srcdir)/tagmalloc.c $(LONG_NEEDED_LIBS)
+
+long_needed_lib_malloc_test: $(srcdir)/long_needed_path_test.c libtagmalloc.so $(LONG_NEEDED_TARGET)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(TAGMALLOC_LIBS) $(LONG_NEEDED_LIBS)
+
+realpath_free_test: $(srcdir)/realpath_free_test.c $(srcdir)/tagmalloc.c
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -o $@ $(srcdir)/realpath_free_test.c $(srcdir)/tagmalloc.c
+
+realpath_free_lib_test: $(srcdir)/realpath_free_test.c libtagmalloc.so
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/realpath_free_test.c $(TAGMALLOC_LIBS)
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
