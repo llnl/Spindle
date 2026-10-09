@@ -59,6 +59,7 @@ static char *filemngt_normalize_dir(char *dir) {
 int ldcs_audit_server_filemngt_init (char *cachepath, char *commpath) {
    int rc=0;
 
+   debug_printf2("Setting cachepath to '%s' and commpath to '%s'\n", cachepath, commpath);
    _ldcs_audit_server_cachepath = cachepath;
    _ldcs_audit_server_commpath  = commpath;
    if (-1 == spindle_mkdir(_ldcs_audit_server_cachepath)) {

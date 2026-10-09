@@ -142,10 +142,10 @@ int spindle_mkdir(char *orig_path)
          }
          else {
             debug_printf3("Did a mkdir(%s)\n", path);
-#if defined(TRACK_MKDIR)
-            track_mkdir(path);
-#endif            
          }
+#if defined(TRACK_MKDIR)
+         track_mkdir(path);
+#endif            
       }
       path[i] = orig_char;
 
@@ -160,6 +160,9 @@ int spindle_mkdir(char *orig_path)
       if (checkdir(path) == -1) {
          return -1;
       }
+#if defined(TRACK_MKDIR)
+      track_mkdir(path);
+#endif            
    }
    return 0;
 }
