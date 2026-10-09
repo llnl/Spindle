@@ -72,8 +72,18 @@ struct app_disposition {
 
 static const int OWNED_SIGS[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
 
+/* Set once the crash handler has installed its handlers. */
+static int sigchain_active = 0;
+
+void crash_sigchain_activate(void)
+{
+   sigchain_active = 1;
+}
+
 int crash_sigchain_is_owned(int sig)
 {
+   if (!sigchain_active)
+      return 0;
    for (size_t i = 0; i < sizeof(OWNED_SIGS) / sizeof(OWNED_SIGS[0]); i++) {
       if (OWNED_SIGS[i] == sig)
           return 1;

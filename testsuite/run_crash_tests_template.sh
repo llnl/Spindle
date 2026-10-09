@@ -35,6 +35,7 @@ die() { echo "FAIL: $*" >&2; exit 1; }
 #  flags (comma-separated): "multi-rank" skips the mode on a single rank;
 #    "clean" expects the test to NOT crash; "altstack" runs the mode with
 #    --crash-altstack; "nofollowfork" runs it with --follow-fork=false;
+#    "nocrashhandler" runs it without the crash handler;
 #    "forkchild" means rows may come from fork or exec children of a rank.
 #  top_frame_regex: regex that should match the top frame in produced coredumps.
 #    Note that all threads will be checked, so in multithreaded examples the regex should
@@ -70,6 +71,7 @@ CRASH_TESTS=(
  'safepoint-fix-write               ; 0     ; 0        ; clean             ; -'
  'safepoint-fix-write-altstack      ; 0     ; 0        ; clean,altstack    ; -                                            ;                                              ;                      ; safepoint-fix-write'
  'safepoint-longjmp                 ; 0     ; 0        ; clean             ; -'
+ 'safepoint-nocrashhandler          ; 0     ; 0        ; clean,nocrashhandler ; -                                         ;                                              ;                      ; safepoint'
  'safepoint-span-read               ; 0     ; 0        ; clean             ; -'
  'safepoint-span-write              ; 0     ; 0        ; clean             ; -'
  'safepoint-span-bad-read           ; 1     ; N        ;                   ; do_safepoint_span_bad_read'
@@ -266,6 +268,11 @@ launch() {
       cmdline_opts="$cmdline_opts --follow-fork=false"
       flux_opts+=(-o spindle.follow-fork=no)
    fi
+   if has_flag "$mode" nocrashhandler; then
+      cmdline_opts=""
+      flux_opts=(-o spindle)
+      export SPINDLE_NO_CRASH_DEDUP=1
+   fi
    ulimit -c unlimited
    # Make libcrashfuncs.so visible to dlopen() from the mode's scratch dir.
    export LD_LIBRARY_PATH="$TESTDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -290,7 +297,7 @@ launch() {
          ;;
       slurm-plugin)
          salloc -N"$NODES" -n"$NODES" \
-            srun --spindle="$cmdline_opts" \
+            srun "--spindle${cmdline_opts:+=$cmdline_opts}" \
                "$binary" --crash-mode "$crash_mode"
          ;;
    esac

@@ -434,6 +434,7 @@ int crash_handler_install(int global_rank, int ldcsid_in)
    sigaddset(&sa.sa_mask, SIGABRT);
 
    const int sigs[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+   crash_sigchain_activate();
    for (size_t i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
       /* If a signal handler was already installed by the time Spindle
          registers its signal handler, we save it to use in
