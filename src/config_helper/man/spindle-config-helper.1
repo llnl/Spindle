@@ -1,0 +1,227 @@
+.TH SPINDLE-CONFIG-HELPER 1 "November 2026" "Spindle 0.13" "User Commands"
+.SH NAME
+spindle-config-helper \- generate and validate Spindle configuration files
+.SH SYNOPSIS
+.B spindle-config-helper
+[\fB-h\fR|\fB--help\fR] [\fB-V\fR|\fB--version\fR] [\fB--config-help\fR]
+.SH DESCRIPTION
+.B spindle-config-helper
+is a utility for generating Spindle configuration files in HPC
+environments. It analyzes the local system to automatically detect optimal
+configuration settings and outputs a
+.I spindle.conf
+file suitable for the environment.
+.PP
+The tool performs the following analysis:
+.IP \(bu 2
+Detects local vs. remote filesystem mounts (NFS, Lustre, GPFS, tmpfs, overlay)
+.IP \(bu 2
+Validates
+.B $TMPDIR
+availability and recommends appropriate paths
+.IP \(bu 2
+Tests SSH connectivity between MPI ranks to verify compute node access
+.IP \(bu 2
+Discovers Python installations via
+.B $PYTHONHOME
+and Python's
+.B sys.prefix
+and
+.B sys.path
+.IP \(bu 2
+Generates
+.I localprefix
+from top-level local directories
+.IP \(bu 2
+Validates path writability and accessibility
+.IP \(bu 2
+Tests Munge availability and functionality
+.PP
+The tool must be run as an MPI program on at least two compute nodes
+to provide accurate environment analysis, particularly for SSH connectivity testing.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Display usage information and exit.
+.TP
+.BR \-V ", " \-\-version
+Display version information and exit.
+.TP
+.BR \-\-config-help
+Display configuration file syntax for all Spindle options and exit.
+.SH INSTRUCTIONS
+To generate a Spindle configuration file:
+.IP 1. 4
+Set
+.B PYTHONHOME
+to the Python installation your programs will use.
+.IP 2. 4
+Set
+.B TMPDIR
+to node-local temporary storage (e.g.,
+.IR /tmp ).
+.IP 3. 4
+Run
+.B spindle-config-helper
+as you would any other parallel program, e.g.:
+.RS 4
+.nf
+flux run -N2 -n2 spindle-config-helper
+srun -N2 -n2 spindle-config-helper
+.fi
+.RE
+.IP 4. 4
+Review the output, then redirect or copy/paste to
+.IR ~/.spindle/spindle.conf .
+.PP
+See the tool's output for explanations of how it chooses paths and validates the environment.
+.SH CONFIGURATION OUTPUT
+The tool generates a minimal configuration with four essential path variables:
+.TP
+.B commpaths
+Local directories for inter-process communication. Based on
+.B $TMPDIR
+if set and valid, otherwise recommends a suitable local filesystem.
+.TP
+.B cachepaths
+Local directories for file caching. Uses similar logic to
+.BR commpaths .
+.TP
+.B python-prefix
+Python installation directories discovered via
+.B $PYTHONHOME
+and Python's
+.B sys.prefix
+and
+.BR sys.path .
+Validates that paths contain Python packages.
+.TP
+.B localprefix
+Colon-separated list of top-level directories that should be excluded from
+caching. Generated from local (non-remote) filesystem mount points.
+Overlay filesystems are treated as non-local.
+.PP
+The output includes warnings and notes as comments:
+.IP \(bu 2
+.B WARNING:
+Issues that require attention (missing environment variables, failed tests, invalid paths)
+.IP \(bu 2
+.B Note:
+Successful validations and test results
+.SH ENVIRONMENT
+.TP
+.B PYTHONHOME
+Python installation prefix. Preferred source for Python path discovery.
+.TP
+.B TMPDIR
+Preferred directory for
+.B commpaths
+and
+.BR cachepaths .
+If not set or invalid, the tool will issue a warning and attempt to find
+suitable alternatives.
+.SH SPINDLE OPTIONS
+Any valid Spindle configuration option can be passed after
+.BR \-\- .
+These options are parsed using Spindle's built-in option handling.
+Use
+.B spindle-config-helper \-\- \-\-usage
+to see all available options.
+.SH EXAMPLES
+.TP
+Generate a new configuration to stdout:
+.nf
+.RS
+spindle-config-helper
+.RE
+.fi
+.TP
+Generate configuration under MPI:
+.nf
+.RS
+flux run -N2 -n2 spindle-config-helper > ~/.spindle/spindle.conf
+srun -N2 -n2 spindle-config-helper | tee spindle.conf
+.RE
+.fi
+.TP
+Check warnings in output:
+.nf
+.RS
+spindle-config-helper | grep WARNING
+.RE
+.fi
+.TP
+View configuration file syntax for all Spindle options:
+.nf
+.RS
+spindle-config-helper \-\-config-help
+.RE
+.fi
+.SH FILES
+.TP
+.I /etc/spindle.conf
+System-wide Spindle configuration file.
+.TP
+.I ~/.spindle/spindle.conf
+Per-user Spindle configuration file (recommended location).
+.TP
+.I /proc/mounts
+Used to detect filesystem mount points and types.
+.SH EXIT STATUS
+.TP
+.B 0
+Success. Valid configuration was generated.
+.TP
+.B 1
+Error. Invalid arguments or configuration error occurred.
+.SH NOTES
+.SS MPI Requirement
+The tool must be run as an MPI program on at least two nodes for accurate results.
+Running on a single node will issue a warning, as SSH ring testing requires
+multiple nodes to properly validate inter-node connectivity.
+.SS Path Validation
+The tool validates paths by checking:
+.IP \(bu 2
+Filesystem is local (not NFS, Lustre, GPFS, or overlay)
+.IP \(bu 2
+Path is writable by the current user
+.IP \(bu 2
+Parent directories exist
+.PP
+Paths that fail validation are filtered out and reported in warnings.
+.SS SSH Ring Testing
+When running under MPI with multiple nodes, each rank tests SSH connectivity
+to the next rank in a ring pattern (highest rank connects to rank 0).
+This verifies that compute nodes can communicate via SSH without password prompts.
+.SS Python Discovery
+Python installations are discovered in order of preference:
+.IP 1. 4
+.B $PYTHONHOME
+environment variable
+.IP 2. 4
+Python's
+.B sys.prefix
+(queried from Python itself)
+.IP 3. 4
+Python's
+.B sys.path
+entries
+.PP
+The tool validates that discovered paths contain actual Python packages,
+not just the Python binary.
+.SS Overlay Filesystems
+Overlay filesystems (detected via
+.IR /proc/mounts )
+are treated as non-local and excluded from
+.BR commpaths ,
+.BR cachepaths ,
+and
+.BR localprefix .
+.SH SEE ALSO
+.BR spindle (1)
+.PP
+Spindle documentation: https://github.com/hpc/Spindle
+.SH AUTHOR
+The Spindle development team at Lawrence Livermore National Laboratory.
+.SH BUGS
+Report bugs to the Spindle issue tracker at https://github.com/hpc/Spindle/issues

@@ -5775,7 +5775,7 @@ $as_echo "$ac_cv_path_SED" >&6; }
 
 ac_config_headers="$ac_config_headers config.h"
 
-ac_config_files="$ac_config_files src/flux/Makefile src/slurm_plugin/Makefile doc/Makefile testsuite/Makefile Makefile"
+ac_config_files="$ac_config_files src/flux/Makefile src/slurm_plugin/Makefile src/config_helper/Makefile doc/Makefile testsuite/Makefile Makefile"
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether ln -s works" >&5
 $as_echo_n "checking whether ln -s works... " >&6; }
@@ -20131,6 +20131,7 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "src/flux/Makefile") CONFIG_FILES="$CONFIG_FILES src/flux/Makefile" ;;
     "src/slurm_plugin/Makefile") CONFIG_FILES="$CONFIG_FILES src/slurm_plugin/Makefile" ;;
+    "src/config_helper/Makefile") CONFIG_FILES="$CONFIG_FILES src/config_helper/Makefile" ;;
     "doc/Makefile") CONFIG_FILES="$CONFIG_FILES doc/Makefile" ;;
     "testsuite/Makefile") CONFIG_FILES="$CONFIG_FILES testsuite/Makefile" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
