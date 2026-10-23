@@ -1,0 +1,116 @@
+.TH SPINDLE-CONFIG-HELPER 1 "October 2026" "Spindle 0.13" "User Commands"
+.SH NAME
+spindle-config-helper \- generate and validate Spindle configuration files
+.SH SYNOPSIS
+.B spindle-config-helper
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B spindle-config-helper
+is a utility for generating and validating Spindle configuration files.
+It parses configuration from command-line options, environment variables, and
+existing configuration files, then outputs the resulting configuration in
+.I spindle.conf
+format.
+.PP
+In future releases, this tool will also probe the runtime environment to
+automatically detect optimal configuration settings, including:
+.IP \(bu 2
+Local mount points suitable for cache and communication paths
+.IP \(bu 2
+Available resource managers (Slurm, Flux, LSF)
+.IP \(bu 2
+Security subsystems (Munge availability)
+.IP \(bu 2
+MPI environment characteristics
+.PP
+The tool is designed to be run on compute nodes in the same environment where
+Spindle will execute, as login/front-end nodes may have different characteristics
+than compute nodes.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Display usage information and exit.
+.TP
+.BR \-V ", " \-\-version
+Display version information and exit.
+.TP
+.BR \-\-usage
+Display a brief usage summary with all available options and exit.
+.PP
+All Spindle configuration options are accepted. Use
+.B --usage
+to see a complete list of available options, or see the Spindle documentation
+for detailed descriptions of each option.
+.SH EXAMPLES
+.TP
+Parse command-line options and output configuration:
+.nf
+.RS
+spindle-config-helper --commpaths=/dev/shm --cachepaths=/tmp/cache
+.RE
+.fi
+.TP
+Parse an existing configuration file:
+.nf
+.RS
+spindle-config-helper --config=/etc/spindle.conf
+.RE
+.fi
+.TP
+Combine multiple configuration sources:
+.nf
+.RS
+export SPINDLE_SECURITY=none
+spindle-config-helper --config=/etc/spindle.conf --launcher=slurm
+.RE
+.fi
+.PP
+The tool merges configuration from multiple sources in the following order
+(later sources override earlier ones):
+.IP 1. 3
+Built-in defaults
+.IP 2. 3
+System configuration file
+.IP 3. 3
+User configuration file
+.IP 4. 3
+Environment variables
+.IP 5. 3
+Command-line options
+.SH FUTURE FUNCTIONALITY
+Future versions will support:
+.TP
+.B Environment Probing
+Automatically detect and recommend optimal settings for cache paths, communication
+paths, and other configuration based on the compute node environment.
+.TP
+.B Configuration Validation
+Verify that specified paths exist, are writable, and are on appropriate filesystem
+types (e.g., local vs. network filesystems).
+.TP
+.B Performance Tuning
+Analyze the environment and suggest performance-oriented configuration settings.
+.TP
+.B MPI Integration
+Run as an MPI application to gather environment information across all compute nodes
+in an allocation.
+.SH FILES
+.TP
+.I /etc/spindle.conf
+System-wide Spindle configuration file.
+.TP
+.I ~/.spindle/spindle.conf
+Per-user Spindle configuration file.
+.SH EXIT STATUS
+.TP
+.B 0
+Success. Valid configuration was parsed and output.
+.TP
+.B 1
+Error. Invalid configuration or parse error occurred.
+.SH SEE ALSO
+.BR spindle (1)
+.SH AUTHOR
+The Spindle development team at Lawrence Livermore National Laboratory.
+.SH BUGS
+Report bugs to the Spindle issue tracker at https://github.com/hpc/Spindle/issues

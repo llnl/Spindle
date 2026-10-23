@@ -1,0 +1,8 @@
+tmpfs /dev/shm tmpfs rw,nosuid,nodev,size=128G 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev,size=100G 0 0
+lustre-mdt:/scratch /scratch lustre rw,lazystatfs 0 0
+gpfs-server:/gpfs/project /gpfs/project gpfs rw,relatime 0 0
+nfs-server:/home /home nfs4 rw,relatime,vers=4.2 0 0
+/dev/nvme0n1 /local ext4 rw,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0

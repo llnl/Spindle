@@ -311,7 +311,7 @@ origin_dir/origin_subdir:
 	$(AM_V_GEN) mkdir -p origin_dir/origin_subdir
 
 origin_dir/origin_subdir/liborigintarget.so: origintarget.c origin_dir/origin_subdir
-	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -Wall $< -shared
+	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -Wall $< -shared -Wl,-rpath,/opt/cray/pe/cce/20.0.0/cce/x86_64/lib
 	@touch $@
 
 origin_dir/liboriginlib.so: originlib.c $(REGLIB_SRC) origin_dir/origin_subdir/liborigintarget.so
@@ -498,13 +498,13 @@ libtagmalloc.so: $(srcdir)/tagmalloc.c
 	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -o $@ -shared -fPIC $<
 
 long_needed_path_test: $(srcdir)/long_needed_path_test.c $(LONG_NEEDED_TARGET)
-	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(LONG_NEEDED_LIBS)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(LONG_NEEDED_LIBS) -Wl,-rpath,/opt/cray/pe/cce/20.0.0/cce/x86_64/lib
 
 long_needed_app_malloc_test: $(srcdir)/long_needed_path_test.c $(srcdir)/tagmalloc.c $(LONG_NEEDED_TARGET)
-	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -fPIE -pie -o $@ $(srcdir)/long_needed_path_test.c $(srcdir)/tagmalloc.c $(LONG_NEEDED_LIBS)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -fPIE -pie -o $@ $(srcdir)/long_needed_path_test.c $(srcdir)/tagmalloc.c $(LONG_NEEDED_LIBS) -Wl,-rpath,/opt/cray/pe/cce/20.0.0/cce/x86_64/lib
 
 long_needed_lib_malloc_test: $(srcdir)/long_needed_path_test.c libtagmalloc.so $(LONG_NEEDED_TARGET)
-	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(TAGMALLOC_LIBS) $(LONG_NEEDED_LIBS)
+	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $(srcdir)/long_needed_path_test.c $(TAGMALLOC_LIBS) $(LONG_NEEDED_LIBS) -Wl,-rpath,/opt/cray/pe/cce/20.0.0/cce/x86_64/lib
 
 realpath_free_test: $(srcdir)/realpath_free_test.c $(srcdir)/tagmalloc.c
 	$(AM_V_CCLD)$(CC) $(CFLAGS) -fno-builtin -o $@ $(srcdir)/realpath_free_test.c $(srcdir)/tagmalloc.c

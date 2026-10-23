@@ -40,7 +40,7 @@ AC_ARG_WITH(commpath,
 AC_ARG_WITH(default-local-prefix,
             [AS_HELP_STRING([--with-default-local-prefix=DIRS],[Colon-seperated list of directories that Spindle will not cache files out of])],
             [SPINDLE_LOCAL_PREFIX=${withval}],
-            [SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX:$COMMPATHS"])
+            [SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX"])
 AC_DEFINE_UNQUOTED([SPINDLE_PORT],[$SPINDLE_PORT],[The default port for Spindle])
 AC_DEFINE_UNQUOTED([NUM_COBO_PORTS],[$NUM_COBO_PORTS],[Number of ports for COBO to search for an open port])
 AC_DEFINE_UNQUOTED([SPINDLE_MAX_PORT],[$(($SPINDLE_PORT + $NUM_COBO_PORTS - 1))],[The maximum port value])

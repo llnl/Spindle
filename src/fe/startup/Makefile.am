@@ -1,6 +1,7 @@
 bin_PROGRAMS = spindle
 lib_LTLIBRARIES = libspindlefe.la
 noinst_LTLIBRARIES = libspindlefe_static.la
+noinst_LIBRARIES = libconfigparse.a
 
 include_HEADERS = $(top_srcdir)/../include/spindle_launch.h
 
@@ -42,4 +43,11 @@ endif
 if LMON
 spindle_LDADD += $(top_builddir)/launchmon/libfelmon.la
 endif
+
+# Private static library for config parsing (used by spindle-config-helper)
+libconfigparse_a_SOURCES = config_mgr.cc config_parser.cc parseargs.cc \
+                           $(top_srcdir)/../utils/pathfn.c \
+                           $(top_srcdir)/../utils/keyfile.c \
+                           $(top_srcdir)/../utils/parseloc.c
+libconfigparse_a_CPPFLAGS = $(CORE_CPPFLAGS)
 

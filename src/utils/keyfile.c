@@ -142,3 +142,12 @@ void clean_keyfile(uint64_t unique_id)
    unlink(path);
    debug_printf("Cleaned keyfile %s\n", path);
 }
+
+const char* get_sec_keydir_path(void)
+{
+#if defined(KEYFILE) && defined(SEC_KEYDIR)
+   return SEC_KEYDIR;
+#else
+   return NULL;
+#endif
+}

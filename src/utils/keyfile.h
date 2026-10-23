@@ -27,6 +27,7 @@ void create_key(unsigned char *buffer, int key_size_bytes);
 void get_keyfile_path(char *pathname, int pathname_len, uint64_t unique_id);
 void create_keyfile(uint64_t unique_id);
 void clean_keyfile(uint64_t unique_id);
+const char* get_sec_keydir_path(void);
 
 #if defined(__cplusplus)
 }

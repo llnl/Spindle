@@ -1,0 +1,7 @@
+tmpfs /dev/shm tmpfs rw,nosuid,nodev,size=64G 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev,size=32G 0 0
+nfs-server:/exports/home /home nfs4 rw,relatime,vers=4.1 0 0
+/dev/sda1 /data ext4 rw,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+devtmpfs /dev devtmpfs rw,nosuid,size=16G,mode=755 0 0

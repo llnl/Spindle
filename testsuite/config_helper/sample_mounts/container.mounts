@@ -1,0 +1,6 @@
+overlay / overlay rw,relatime,lowerdir=/sysroot,upperdir=/overlay/rw,workdir=/overlay/work 0 0
+tmpfs /dev/shm tmpfs rw,nosuid,nodev,size=8G 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev,size=16G 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+devtmpfs /dev devtmpfs rw,relatime,size=4G 0 0
