@@ -16488,7 +16488,7 @@ fi
 if test "${with_default_local_prefix+set}" = set; then :
   withval=$with_default_local_prefix; SPINDLE_LOCAL_PREFIX=${withval}
 else
-  SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX:$COMMPATHS"
+  SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX"
 fi
 
 

@@ -3020,6 +3020,38 @@ int handle_cachepath_consensus(ldcs_process_data_t *procdata)
         debug_printf2( "The commpath is:                      %s\n", procdata->commpath );
     }
 
+    /* Append the final cachepath and commpath to local-prefix so we don't try to
+     * cache files that are already in the cache or communication directories */
+    if (procdata->localprefix && (procdata->cachepath || procdata->commpath)) {
+        size_t old_len = strlen(procdata->localprefix);
+        size_t cache_len = procdata->cachepath ? strlen(procdata->cachepath) : 0;
+        size_t comm_len = procdata->commpath ? strlen(procdata->commpath) : 0;
+        // Calculate space needed: old + ':' + cachepath + ':' + commpath + '\0'
+        size_t colons = 0;
+        if (old_len > 0 && cache_len > 0) colons++;
+        if ((old_len > 0 || cache_len > 0) && comm_len > 0) colons++;
+
+        char *new_localprefix = (char*)malloc(old_len + colons + cache_len + comm_len + 1);
+        if (new_localprefix) {
+            new_localprefix[0] = '\0';
+            if (old_len > 0) {
+                strcpy(new_localprefix, procdata->localprefix);
+            }
+            if (procdata->cachepath) {
+                if (strlen(new_localprefix) > 0) strcat(new_localprefix, ":");
+                strcat(new_localprefix, procdata->cachepath);
+            }
+            if (procdata->commpath) {
+                if (strlen(new_localprefix) > 0) strcat(new_localprefix, ":");
+                strcat(new_localprefix, procdata->commpath);
+            }
+            procdata->localprefix = new_localprefix;
+            debug_printf2("Updated local-prefix to include cachepath and commpath: %s\n", procdata->localprefix);
+        } else {
+            err_printf("Failed to allocate memory for updated local-prefix\n");
+        }
+    }
+
     ldcs_audit_server_filemngt_init(procdata->cachepath, procdata->commpath);
 
     test_printf("<internal> cachepath=%s\n", procdata->cachepath);
