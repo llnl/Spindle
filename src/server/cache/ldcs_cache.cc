@@ -445,6 +445,7 @@ int ldcs_cache_decodeDirContents(char *buffer, size_t len,
    while (pos < len) {
       int fn_length;
       string filename;
+      num_entries++;
       memcpy(&fn_length, buffer + pos, sizeof(int));
       assert(fn_length <= MAX_PATH_LEN+1);
       pos += sizeof(int);
@@ -459,14 +460,13 @@ int ldcs_cache_decodeDirContents(char *buffer, size_t len,
       assert(pos <= len);
 
       addFile(dirname, filename);
-      num_entries++;
    }
 
    strncpy(dirbuffer, dirname.c_str(), dirbuffer_sz);
    dirbuffer[dirbuffer_sz - 1] = '\0';
 
    debug_printf3("Decoded packet for directory with %d entries: %s\n", num_entries, dirbuffer);
-   return 0;
+   return num_entries;
 }
 
 void ldcs_cache_addFileDir(char *dname, char *fname)

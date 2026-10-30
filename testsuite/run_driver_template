@@ -75,7 +75,7 @@ if [ $1 == --serial ] ; then
     exec SPINDLE_EXEC --level=high --launcher=serial $2
 fi
 
-export LIBRARY_LIST="`pwd`/libcxxexceptA.so:`pwd`/libtest100.so:`pwd`/libtest2000.so:`pwd`/libtest500.so:`pwd`/libtest1000.so:`pwd`/libtest4000.so:`pwd`/libtest6000.so:`pwd`/libdepA.so:`pwd`/libtest10.so:`pwd`/libtest11.so:`pwd`/libtest12.so:`pwd`/libtest13.so:`pwd`/libtest14.so:`pwd`/libtest15.so:`pwd`/libtest16.so:`pwd`/libtest17.so:`pwd`/libtest18.so:`pwd`/libtest19.so:`pwd`/libtest20.so:`pwd`/libtest10000.so:`pwd`/libtest50.so:`pwd`/libtest8000.so:`pwd`/origin_dir/liboriginlib.so"
+export LIBRARY_LIST="`pwd`/libcxxexceptA.so:`pwd`/libtest100.so:`pwd`/libtest2000.so:`pwd`/libtest500.so:`pwd`/libtest1000.so:`pwd`/libtest4000.so:`pwd`/libtest6000.so:`pwd`/libdepA.so:`pwd`/libtest10.so:`pwd`/libtest11.so:`pwd`/libtest12.so:`pwd`/libtest13.so:`pwd`/libtest14.so:`pwd`/libtest15.so:`pwd`/libtest16.so:`pwd`/libtest17.so:`pwd`/libtest18.so:`pwd`/libtest19.so:`pwd`/libtest20.so:`pwd`/libtest10000.so:`pwd`/libtest50.so:`pwd`/libtest8000.so:`pwd`/origin_dir/liboriginlib.so:`pwd`/exeorigin_dir/libexeorigin.so"
 
 
 if [ $1 == --dependency ] ; then

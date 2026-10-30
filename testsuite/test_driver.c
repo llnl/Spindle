@@ -112,8 +112,11 @@ typedef struct {
 #define FLAGS_TLSLIB   (1 << 5)
 #define FLAGS_CHECKSYMT (1 << 6)
 #define FLAGS_LOCAL (1 << 7)
+#define FLAGS_OPEN_AFTER_FORK (1 << 8)
+
 int abort_mode = 0;
 int fork_mode = 0;
+int fork_mode_is_child = 0;
 int fork_child = 0;
 int forkexec_mode = 0;
 int nompi_mode = 0;
@@ -151,11 +154,11 @@ open_libraries_t libraries[] = {
    { "libtest6000.so", NULL, NULL, NULL, UNLOADED, 0, NULL },
    { "libtest8000.so", NULL, NULL, NULL, UNLOADED, 0, NULL },
    { "libtest10000.so", NULL, NULL, NULL, UNLOADED, 0, NULL },
-   { "libdepA.so", NULL, NULL, NULL, UNLOADED, 0, NULL },
-   { "libcxxexceptA.so", NULL, NULL, NULL, UNLOADED, 0, NULL },
+   { "libdepA.so", NULL, NULL, NULL, UNLOADED, FLAGS_OPEN_AFTER_FORK, NULL },
+   { "libcxxexceptA.so", NULL, NULL, NULL, UNLOADED, FLAGS_OPEN_AFTER_FORK, NULL },
    { "libnoexist.so", NULL, NULL, NULL, UNLOADED, FLAGS_NOEXIST, NULL },
    { "libsymlink.so", NULL, NULL, NULL, UNLOADED, FLAGS_SYMLINK | FLAGS_SKIP | FLAGS_WONTLOAD, NULL },
-   { "liboriginlib.so", NULL, NULL, NULL, UNLOADED, 0, "origin_dir/" },
+   { "liboriginlib.so", NULL, NULL, NULL, UNLOADED, FLAGS_OPEN_AFTER_FORK, "origin_dir/" },
    { "libtls1.so", NULL, NULL, NULL, UNLOADED, FLAGS_TLSLIB | FLAGS_SKIP, NULL },
    { "libtls2.so", NULL, NULL, NULL, UNLOADED, FLAGS_TLSLIB | FLAGS_SKIP, NULL },
    { "libtls3.so", NULL, NULL, NULL, UNLOADED, FLAGS_TLSLIB | FLAGS_SKIP, NULL },
@@ -197,6 +200,7 @@ open_libraries_t libraries[] = {
    { "libtest8000.so", NULL, NULL, NULL, UNLOADED, FLAGS_CHECKSYMT | FLAGS_SKIP, NULL },
    { "libtest10000.so", NULL, NULL, NULL, UNLOADED, FLAGS_CHECKSYMT | FLAGS_SKIP, NULL },
    { "liblocal.so", NULL, NULL, NULL, UNLOADED, FLAGS_LOCAL, NULL },
+   { "libexeorigin.so", NULL, NULL, NULL, UNLOADED, FLAGS_OPEN_AFTER_FORK, "exeorigin_dir/" },
    { NULL, NULL, NULL, 0, 0 }
 };
 int num_libraries;
@@ -453,10 +457,11 @@ static char *create_local_file(int libnum)
 
 static void open_library(int i)
 {
-   char *fullpath, *result;
+   char *fullpath;
+   void *result;
    if (libraries[i].flags & FLAGS_TLSLIB)
       return;
-   if (!(libraries[i].flags & FLAGS_LOCAL))
+   else if (!(libraries[i].flags & FLAGS_LOCAL))
       fullpath = libpath(libraries[i].libname, libraries[i].subdir);
    else
       fullpath = create_local_file(i);
@@ -465,12 +470,13 @@ static void open_library(int i)
       check_symt(fullpath);
       return;
    }   
-   if (!(libraries[i].flags & FLAGS_WONTLOAD) && !(libraries[i].flags & FLAGS_LOCAL))
+   if (!(libraries[i].flags & FLAGS_WONTLOAD) && !(libraries[i].flags & FLAGS_LOCAL)) {
       test_printf("dlstart %s\n", libraries[i].libname);
-   
+   }
+
    result = dlopen(fullpath, RTLD_LAZY | RTLD_GLOBAL);
    if (libraries[i].flags & FLAGS_NOEXIST) {
-      if (result != 0)
+      if (result)
          err_printf("Failure, opened a library that doesn't exist\n");
       return;
    }
@@ -501,6 +507,11 @@ void dependency_mode()
    /* Should be auto loaded */
    int i;
    for (i = 0; i<num_libraries; i++) {
+      if (fork_mode_is_child && libraries[i].flags & FLAGS_OPEN_AFTER_FORK) {
+         char *fullpath = libpath(libraries[i].libname, libraries[i].subdir);
+         int fd = open(fullpath, O_RDONLY);
+         if (fd != -1) close(fd);
+      }
       if (libraries[i].flags & FLAGS_CHECKSYMT)
          open_library(i);
       if (libraries[i].flags & FLAGS_LOCAL)
@@ -605,7 +616,8 @@ void api_mode()
    for (i = 0; libraries[i].libname; i++) {
       int result;
       struct stat buf1, buf2;
-      char *path = libpath(libraries[i].libname, libraries[i].subdir);
+      char *path;
+      path = libpath(libraries[i].libname, libraries[i].subdir);
       
       result = spindle_stat(path, &buf1);
       if (libraries[i].flags & FLAGS_NOEXIST) {
@@ -836,8 +848,9 @@ static int run_stat_test(const char *file, int flags, mode_t prot, int expected)
    int fd = -1;
    const char *statname = NULL;
 
-   if (expected == 0)
+   if (expected == 0) {
       test_printf("dlstart %s\n", file[0] != '/' ? file : file+1);
+   }
    if (flags & LSTAT) {
       statname = "lstat";
       result = lstat(file, &buf);
@@ -1180,7 +1193,7 @@ void check_libraries()
           (!(libraries[i].flags & FLAGS_NOEXIST)) && 
           (!(libraries[i].flags & FLAGS_SKIP)) &&
           (!libraries[i].calc_func)) {
-         err_printf("Didnocal't open expected library %s\n", libraries[i].libname); 
+         err_printf("Didn't calc open expected library %s with %p\n", libraries[i].libname, libraries[i].calc_func); 
       }
       if (libraries[i].opened == UNLOADED)
          continue;
@@ -1642,6 +1655,10 @@ static void setup_forkmode() {
       return;
    }
 
+   if (fork_child == 0) {
+      fork_mode_is_child = 1;
+      close(-1);
+   }
    if (fork_child == 0 && forkexec_mode) {
       int i;
       char **newargv = (char **) malloc(sizeof(char *) * (gargc+1));

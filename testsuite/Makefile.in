@@ -374,11 +374,11 @@ libgenerator_SOURCES = libgenerator.c
 test_driverSOURCES = $(top_srcdir)/testsuite/test_driver.c
 test_driverCFLAGS = -DLPATH=$(top_builddir)/testsuite -I$(top_srcdir)/src/client/spindle_api -I$(top_srcdir)/src/utils $(MPI_CFLAGS) -Wall -I$(top_builddir)
 test_driverLDADD = -ldl -lpthread -ltestoutput -lfuncdict -lspindle
-test_driverLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite -L$(top_builddir)/src/client/spindle_api $(MPI_CLDFLAGS) $(LDFLAGS) -L. $(DYNAMIC_FLAG) -no-install
+test_driverLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite -L$(top_builddir)/src/client/spindle_api $(MPI_CLDFLAGS) $(LDFLAGS) -L. $(DYNAMIC_FLAG) -no-install '-Wl,-rpath,$$ORIGIN/exeorigin_dir'
 test_driver_libsSOURCES = $(top_srcdir)/testsuite/test_driver.c
-test_driver_libsCFLAGS = -DLPATH=$(top_builddir)/testsuite -I$(top_srcdir)/src/client/spindle_api -I$(top_srcdir)/src/utils $(MPI_CFLAGS) -Wall
+test_driver_libsCFLAGS = -DLPATH=$(top_builddir)/testsuite -I$(top_srcdir)/src/client/spindle_api -I$(top_srcdir)/src/utils -I$(top_builddir) $(MPI_CFLAGS) -Wall
 test_driver_libsLDADD = -ltest10 -ltest11 -ltest12 -ltest13 -ltest14 -ltest15 -ltest16 -ltest17 -ltest18 -ltest19 -ltest20 -ltest50 -ltest100 -ltest500 -ltest1000 -ltest2000 -ltest4000 -ltest6000 -ltest8000 -ltest10000 -ldepA -lcxxexceptA -loriginlib -ldl -lpthread -ltestoutput -lfuncdict -ldepB -ldepC -lcxxexceptB -lspindle
-test_driver_libsLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite $(MPI_CLDFLAGS) -L$(top_builddir)/src/client/spindle_api -L. $(DYNAMIC_FLAG) -no-install $(LDFLAGS) -Wl,-rpath,$(PWD)/origin_dir -L$(PWD)/origin_dir -Wl,-rpath-link,$(PWD)/origin_dir/origin_subdir -I$(top_builddir)
+test_driver_libsLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite $(MPI_CLDFLAGS) -L$(top_builddir)/src/client/spindle_api -L. $(DYNAMIC_FLAG) -no-install $(LDFLAGS) -Wl,-rpath,$(PWD)/origin_dir -L$(PWD)/origin_dir -Wl,-rpath-link,$(PWD)/origin_dir/origin_subdir -L$(PWD)/exeorigin_dir '-Wl,-rpath,$$ORIGIN/exeorigin_dir'
 REGLIB_SRC = $(srcdir)/registerlib.c
 LD_FUNCDICT = -L$(top_builddir)/testsuite -lfuncdict
 EXTRA_DIST = run_crash_tests_template.sh crash_test.c crash_functions.c crash_functions.h libcrashfuncs.c libcrashctor.c libcrashfixed.c
@@ -727,8 +727,8 @@ uninstall-am:
 test_driver: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libbigtls1048576.so libbigtls204800.so libbigtls1024.so
 	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driverSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ $(test_driverCFLAGS) $(test_driverLDFLAGS) $(test_driverLDADD) -lbigtls1048576 -lbigtls204800 -lbigtls1024
 
-test_driver_libs: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so libdepA.so libcxxexceptA.so libdepB.so libdepC.so libcxxexceptB.so origin_dir/liboriginlib.so libbigtls1048576.so libbigtls204800.so libbigtls1024.so
-	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driver_libsSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ -DUSE_NEEDED $(test_driver_libsCFLAGS) $(test_driver_libsLDFLAGS) $(test_driver_libsLDADD) -lbigtls1048576 -lbigtls204800 -lbigtls1024
+test_driver_libs: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so libdepA.so libcxxexceptA.so libdepB.so libdepC.so libcxxexceptB.so origin_dir/liboriginlib.so libbigtls1048576.so libbigtls204800.so libbigtls1024.so exeorigin_dir/libexeorigin.so
+	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driver_libsSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ -DUSE_NEEDED $(test_driver_libsCFLAGS) $(test_driver_libsLDFLAGS) $(test_driver_libsLDADD) -lbigtls1048576 -lbigtls204800 -lbigtls1024 -lexeorigin
 
 libtest10.c: libgenerator
 	$(AM_V_GEN)./libgenerator libtest10.c 10 t10
@@ -1003,6 +1003,12 @@ libtestoutput.so: testoutput.c $(REGLIB_SRC)
 libfuncdict.so: funcdict.c $(REGLIB_SRC)
 	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -Wall $< $(REGLIB_SRC) -DSO_NAME=$@ -shared
 
+exeorigin_dir:
+	$(AM_V_GEN) mkdir -p exeorigin_dir
+
+exeorigin_dir/libexeorigin.so: origintarget.c exeorigin_dir libfuncdict.so
+	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -shared -Wall -DSO_NAME=libexeorigin.so -DFUNC_NAME=origintarget_calc $< $(REGLIB_SRC) $(LD_FUNCDICT) -L$(PWD) 
+
 origin_dir/origin_subdir:
 	$(AM_V_GEN) mkdir -p origin_dir/origin_subdir
 
@@ -1011,7 +1017,7 @@ origin_dir/origin_subdir/liborigintarget.so: origintarget.c origin_dir/origin_su
 	@touch $@
 
 origin_dir/liboriginlib.so: originlib.c $(REGLIB_SRC) origin_dir/origin_subdir/liborigintarget.so
-	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -Wall $< $(REGLIB_SRC) -DSO_NAME=liboriginlib.so -DFUNC_NAME=origin_calc -shared '-Wl,-rpath,$$ORIGIN/origin_subdir' -Lorigin_dir/origin_subdir -lorigintarget
+	$(AM_V_CCLD)$(MPICC) -o $@ -fPIC -Wall $< $(REGLIB_SRC) -DSO_NAME=liboriginlib.so -DFUNC_NAME=origintarget_calc -shared '-Wl,-rpath,$$ORIGIN/origin_subdir' -Lorigin_dir/origin_subdir -lm -lorigintarget
 
 libsymbind_a.so: $(srcdir)/symbindlib.c $(srcdir)/symbind_fileops.c libsymbind_b.so
 	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ -shared -fPIC -Wall -DAUTORUN=a $(srcdir)/symbindlib.c -L. -Wl,--no-as-needed -lsymbind_b -I$(srcdir) -Wl,-rpath,$(top_builddir)/testsuite

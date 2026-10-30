@@ -51,7 +51,8 @@ typedef struct
 size_t extended_stat_size(extended_stat_t *st);
 
 char *filemngt_calc_localname(char *global_name, calc_local_t reqtype);
-
+void filemngt_calc_dirname(const char *global_name, char *local_name_result, size_t local_name_result_size);
+   
 int ldcs_audit_server_filemngt_clean();
 
 int filemngt_create_file_space(char *filename, size_t size, void **buffer_out, int *fd_out);

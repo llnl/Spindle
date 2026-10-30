@@ -50,6 +50,7 @@ char *_ldcs_audit_server_cachepath;
 static char *normalized_tmpdir;
 static char *_ldcs_audit_server_commpath;
 extern int spindle_mkdir(char *path);
+extern int spindle_mkdir_in_cache(char *path, char *cachepath);
 
 static char *filemngt_normalize_dir(char *dir) {
    char *newpath = realpath(dir, NULL);
@@ -95,6 +96,32 @@ int ldcs_is_a_localfile(ldcs_process_data_t *procdata, char *filename) {
 
 
 #define MAX_FILENAME_LEN 256
+void filemngt_calc_dirname(const char *global_name, char *local_name_result, size_t local_name_result_size)
+{
+   char *lastslash, *endslash;
+   int starts_with_slash, endslash_position;
+   
+   lastslash = strrchr(_ldcs_audit_server_cachepath, '/');
+   if (lastslash && lastslash[1] == '\0')
+      endslash = "";
+   else
+      endslash = "/";
+
+   starts_with_slash = (global_name[0] == '/') ? 1 : 0;
+
+   snprintf(local_name_result, local_name_result_size, "%s%s%s", _ldcs_audit_server_cachepath, endslash, global_name+starts_with_slash);
+
+   //Take out any trailing slashes
+   endslash = strrchr(local_name_result, '/');
+   endslash_position = endslash ? (int) (endslash - local_name_result) : 0;
+   if (endslash_position+1 >= local_name_result_size || endslash[1] == '\0') {
+      while (*endslash == '/' && endslash != local_name_result) {
+         *endslash = '\0';
+         endslash--;
+      }
+   }
+}
+
 char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
 {
    //The naming decisions here need to be cordinated with name parsing in
@@ -103,16 +130,11 @@ char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
    char target[MAX_PATH_LEN+1];
    char dirpart[MAX_PATH_LEN+1];
    char filepart[MAX_PATH_LEN+1];
-   char *endslash, *lastslash;
    const char *prefix = NULL;
+   char *lastslash;
    size_t dirpart_size, filepart_size;
-   int cut_dirpart_slash;
-
-   lastslash = strrchr(_ldcs_audit_server_cachepath, '/');
-   if (lastslash && lastslash[1] == '\0')
-      endslash = "";
-   else
-      endslash = "/";
+   ssize_t bytes_left;
+   int result, error;
 
    GCC7_DISABLE_WARNING("-Wformat-truncation");
    
@@ -154,12 +176,20 @@ char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
    strncpy(filepart, target, sizeof(filepart));
    filepart[sizeof(filepart)-1] = '\0';
 
-   cut_dirpart_slash = (dirpart[0] == '/') ? 1 : 0;
-   
-   snprintf(target, sizeof(target), "%s%s%s", _ldcs_audit_server_cachepath, endslash, dirpart+cut_dirpart_slash);
-   spindle_mkdir(target);
+   filemngt_calc_dirname(dirpart, target, sizeof(target));
+   debug_printf3("Calling spindle_mkdir(%s, %s)\n", target, _ldcs_audit_server_cachepath);
+   result = spindle_mkdir_in_cache(target, _ldcs_audit_server_cachepath);
+   if (result == -1) {
+      error = errno;
+      err_printf("spindle_mkdir_in_cache(%s, %s) failed with error %s\n", target, _ldcs_audit_server_cachepath, strerror(error));
+      return NULL;
+   }
+   debug_printf3("Calculated local directory name for %s as %s and made directory\n", global_name, target);
 
-   snprintf(target, sizeof(target), "%s%s%s/%s", _ldcs_audit_server_cachepath, endslash, dirpart+cut_dirpart_slash, filepart);
+   bytes_left = sizeof(target) - strlen(target);
+   strncat(target, "/", --bytes_left);
+   strncat(target, filepart, bytes_left - strlen(filepart));
+   target[sizeof(target)-1] = '\0';
 
    GCC7_ENABLE_WARNING;
       

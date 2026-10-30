@@ -141,6 +141,7 @@ static int handle_send_file_query(ldcs_process_data_t *procdata, char *fullpath,
 static int handle_file_recv(ldcs_process_data_t *procdata, ldcs_message_t *msg, node_peer_t peer, 
                             broadcast_t bcast);
 static int handle_directory_recv(ldcs_process_data_t *procdata, ldcs_message_t *msg, broadcast_t bcast);
+static int handle_process_directory(ldcs_process_data_t *procdata, const char *dirname);
 static int handle_alias_recv(ldcs_process_data_t *procdata, ldcs_message_t *msg, broadcast_t bcast);
 
 static int handle_exit_broadcast(ldcs_process_data_t *procdata);
@@ -631,8 +632,11 @@ static int handle_read_directory(ldcs_process_data_t *procdata, char *dir)
    procdata->server_stat.procdir.bytes += rc;
    procdata->server_stat.procdir.time += (ldcs_get_time() - starttime);
 	
-   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_EXISTS ||
-       cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_NOT_EXISTS) {
+   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_EXISTS) {
+      handle_process_directory(procdata, dir);
+      return 0;
+   }
+   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_NOT_EXISTS) {
       return 0;
    }
    else {
@@ -1666,17 +1670,37 @@ static int handle_file_recv(ldcs_process_data_t *procdata, ldcs_message_t *msg, 
 }
 
 /**
+ * We're processing a directory that exists, either from reading it or recv'ing it on the
+ * network.
+ **/
+extern int spindle_mkdir_in_cache(char *orig_path, char *cachepath);
+static int handle_process_directory(ldcs_process_data_t *procdata, const char *dirname)
+{
+   char local_dirname[MAX_PATH_LEN+1];
+
+   debug_printf2("Creating directory %s in cache\n", dirname);
+   filemngt_calc_dirname(dirname, local_dirname, sizeof(local_dirname));
+   spindle_mkdir_in_cache(local_dirname, procdata->cachepath);
+   return 0;
+}
+
+/**
  * We've received a packet with directory info.  Process it.
  **/
 static int handle_directory_recv(ldcs_process_data_t *procdata, ldcs_message_t *msg, broadcast_t bcast)
 {
    double starttime = ldcs_get_time();
    char dirname[MAX_PATH_LEN+1];
+   int num_entries_in_dir;
 
    debug_printf2("New directory cache entries received from %s\n",
                  bcast == preload_broadcast ? "preload" : "request");
 
-   ldcs_cache_decodeDirContents(msg->data, msg->header.len, dirname, MAX_PATH_LEN);
+   num_entries_in_dir = ldcs_cache_decodeDirContents(msg->data, msg->header.len, dirname, MAX_PATH_LEN);
+   debug_printf2("Directory %s has %d entries\n", dirname, num_entries_in_dir);
+   if (num_entries_in_dir) {
+      handle_process_directory(procdata, dirname);
+   }
 
    handle_broadcast_dir(procdata, dirname, bcast);
    
