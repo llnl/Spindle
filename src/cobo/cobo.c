@@ -1476,11 +1476,32 @@ int cobo_allreduce( uint64_t *pval, cobo_op_t op ){
     return COBO_SUCCESS;
 }
 
+/* read COBO_CONNECT_* settings from the environment */
+static void cobo_read_env_settings(void)
+{
+    char *value;
+
+    /* milliseconds */
+    if ((value = cobo_getenv("COBO_CONNECT_TIMEOUT", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_timeout = atoi(value);
+
+    /* exponential backoff factor for connect */
+    if ((value = cobo_getenv("COBO_CONNECT_BACKOFF", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_backoff = atoi(value);
+
+    /* milliseconds to sleep before rescanning ports */
+    if ((value = cobo_getenv("COBO_CONNECT_SLEEP", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_sleep = atoi(value);
+
+    /* seconds */
+    if ((value = cobo_getenv("COBO_CONNECT_TIMELIMIT", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_timelimit = (double) atoi(value);
+}
+
 /* provide list of ports and number of ports as input, get number of tasks and my rank as output */
 int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* num_ranks)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    char *value;
 
     struct timeval start, end;
     cobo_gettimeofday(&start);
@@ -1495,25 +1516,7 @@ int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* 
      * Get information from environment
      * ======================================================= */
 
-    /* milliseconds */
-    if ((value = cobo_getenv("COBO_CONNECT_TIMEOUT\n", ENV_OPTIONAL))) {
-        cobo_connect_timeout = atoi(value);
-    }
-
-    /* exponential backoff factor for connect */
-    if ((value = cobo_getenv("COBO_CONNECT_BACKOFF\n", ENV_OPTIONAL))) {
-        cobo_connect_backoff = atoi(value);
-    }
-
-    /* milliseconds to sleep before rescanning ports */
-    if ((value = cobo_getenv("COBO_CONNECT_SLEEP\n", ENV_OPTIONAL))) {
-        cobo_connect_sleep = atoi(value);
-    }
-
-    /* seconds */
-    if ((value = cobo_getenv("COBO_CONNECT_TIMELIMIT\n", ENV_OPTIONAL))) {
-        cobo_connect_timelimit = (double) atoi(value);
-    }
+    cobo_read_env_settings();
 
     debug_printf3("In cobo_init():\n" \
         "COBO_CONNECT_TIMEOUT: %d, COBO_CONNECT_BACKOFF: %d, COBO_CONNECT_SLEEP: %d, COBO_CONNECT_TIMELIMIT: %d\n",
@@ -1596,6 +1599,8 @@ int cobo_server_get_root_socket(int* fd)
 /* given a hostlist and portlist where clients are running, open the tree and assign ranks to clients */
 int cobo_server_open(uint64_t sessionid, char** hostlist, int num_hosts, int* portlist, int num_ports)
 {
+    cobo_read_env_settings();
+
     /* at this point, we know this process is the server, so set its rank */
     cobo_me = -2;
     cobo_nprocs = num_hosts;
