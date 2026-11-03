@@ -30,7 +30,7 @@ int _ldcs_server_CB ( int infd, int serverid, void *data ) {
    (void)infd;
    int rc=0;
    ldcs_process_data_t *ldcs_process_data = (ldcs_process_data_t *) data ;
-   int nc, fd, more_avail;
+   int nc, fd, more_avail, connid;
    double cb_starttime;
 
    cb_starttime=ldcs_get_time();
@@ -52,7 +52,12 @@ int _ldcs_server_CB ( int infd, int serverid, void *data ) {
       }
       if(nc==ldcs_process_data->client_table_size) _error("internal error with client table (table full)");
     
-      ldcs_process_data->client_table[nc].connid       = ldcs_open_server_connections(serverid, nc, &more_avail);
+      connid = ldcs_open_server_connections(serverid, nc, &more_avail);
+      if (connid == -1) {
+         debug_printf("No new client connection accepted\n");
+         continue;
+      }
+      ldcs_process_data->client_table[nc].connid       = connid;
       ldcs_process_data->client_table[nc].state        = LDCS_CLIENT_STATUS_ACTIVE;
       ldcs_process_data->client_table[nc].null_msg_cnt = 0;    
       ldcs_process_data->client_table[nc].query_open   = 0;

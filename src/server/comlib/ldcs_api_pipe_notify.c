@@ -138,7 +138,8 @@ char *ldcs_notify_get_next_file(int fd) {
 
     if (ldcs_fdlist_nt[fd].buffer_enddata < 0) {
       if (errno == EINTR) {
-	/* need to reissue system call */
+        ldcs_fdlist_nt[fd].buffer_enddata = 0;
+        return NULL;
       } else {
 	_error ("read on notify failed");
       }
