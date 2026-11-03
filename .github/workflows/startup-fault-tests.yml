@@ -1,0 +1,238 @@
+name: startup-fault-tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: startup-fault-tests-${{github.ref}}
+  cancel-in-progress: true
+
+jobs:
+  startup-fault-serial-ubuntu_x86:
+    name: Startup fault tests (Serial, Ubuntu)
+    environment: Spindle CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out Spindle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Docker Compose
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a
+        with:
+          version: latest
+
+      - name: Build spindle-serial-ubuntu image
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose --progress=plain build
+
+      - name: Bring spindle-serial-ubuntu up
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose up -d
+
+      - name: Verify munge works in spindle-serial-ubuntu
+        run: |
+          docker exec spindlenode bash -c 'munge -n | unmunge'
+
+      - name: Run spindle-serial-ubuntu startup fault tests
+        run: |
+          docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=serial'
+
+      - name: Bring spindle-serial-ubuntu down
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose down
+
+  startup-fault-serial-ubuntu_arm64:
+    name: Startup fault tests (Serial, Ubuntu, arm64)
+    environment: Spindle CI
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Check out Spindle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Docker Compose
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a
+        with:
+          version: latest
+
+      - name: Build spindle-serial-ubuntu image
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose --progress=plain build
+
+      - name: Bring spindle-serial-ubuntu up
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose up -d
+
+      - name: Verify munge works in spindle-serial-ubuntu
+        run: |
+          docker exec spindlenode bash -c 'munge -n | unmunge'
+
+      - name: Run spindle-serial-ubuntu startup fault tests
+        run: |
+          docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=serial'
+
+      - name: Bring spindle-serial-ubuntu down
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          cd containers/spindle-serial-ubuntu
+          docker compose down
+
+  startup-fault-flux-ubuntu:
+    name: Startup fault tests (Flux, Ubuntu)
+    environment: Spindle CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out Spindle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Docker Compose
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a
+        with:
+          version: latest
+
+      - name: Build spindle-flux-ubuntu image
+        run: |
+          cd containers/spindle-flux-ubuntu
+          docker compose --progress=plain build
+
+      - name: Bring spindle-flux-ubuntu up
+        run: |
+          cd containers/spindle-flux-ubuntu
+          docker compose up -d --wait --wait-timeout 60
+
+      - name: Verify munge works in spindle-flux-ubuntu
+        run: |
+          docker exec node-1 bash -c 'munge -n | unmunge'
+
+      - name: Run spindle-flux-ubuntu startup fault tests
+        run: |
+          docker exec node-1 bash -c 'cd Spindle-build/testsuite && flux alloc --nodes=${workers} ./run_startup_fault_tests.sh --launcher=flux --nodes=${workers}'
+
+      - name: Run spindle-flux-ubuntu session startup fault tests
+        run: |
+          docker exec node-1 bash -c 'cd Spindle-build/testsuite && flux alloc --nodes=${workers} ./run_startup_fault_tests.sh --launcher=flux --nodes=${workers} --session'
+
+      - name: Bring spindle-flux-ubuntu down
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          cd containers/spindle-flux-ubuntu
+          docker compose down
+
+  startup-fault-slurm-srun-ubuntu:
+    name: Startup fault tests (Slurm srun, Ubuntu)
+    environment: Spindle CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out Spindle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Docker Compose
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a
+        with:
+          version: latest
+
+      - name: Login to GitHub Container Registry
+        if: ${{ !env.ACT }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate MariaDB configuration
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-srun
+          ./generate_config.sh
+
+      - name: Build spindle-slurm-srun-ubuntu image
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-srun
+          docker compose --progress=plain build
+
+      - name: Bring spindle-slurm-srun-ubuntu up
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-srun
+          docker compose up -d --wait --wait-timeout 120
+
+      - name: Verify munge works in spindle-slurm-srun-ubuntu
+        run: |
+          docker exec slurm-srun-head bash -c 'munge -n | unmunge'
+
+      - name: Run spindle-slurm-srun-ubuntu startup fault tests
+        run: |
+          docker exec slurm-srun-head bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=slurm --nodes=${workers}'
+
+      - name: Bring spindle-slurm-srun-ubuntu down
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-srun
+          docker compose down
+
+  startup-fault-slurm-plugin-ubuntu:
+    name: Startup fault tests (Slurm Plugin, Ubuntu)
+    environment: Spindle CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out Spindle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Docker Compose
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a
+        with:
+          version: latest
+
+      - name: Login to GitHub Container Registry
+        if: ${{ !env.ACT }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate MariaDB configuration
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-plugin
+          ./generate_config.sh
+
+      - name: Build spindle-slurm-plugin-ubuntu image
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-plugin
+          docker compose --progress=plain build
+
+      - name: Bring spindle-slurm-plugin-ubuntu up
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-plugin
+          docker compose up -d --wait --wait-timeout 120
+
+      - name: Verify munge works in spindle-slurm-plugin-ubuntu
+        run: |
+          docker exec slurm-plugin-head bash -c 'munge -n | unmunge'
+
+      - name: Run spindle-slurm-plugin-ubuntu startup fault tests
+        run: |
+          docker exec slurm-plugin-head bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=slurm-plugin --nodes=${workers}'
+
+      - name: Bring spindle-slurm-plugin-ubuntu down
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          cd containers/spindle-slurm-ubuntu/testing-plugin
+          docker compose down
