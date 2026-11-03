@@ -68,14 +68,28 @@ int ldcs_audit_server_fe_md_open ( char **hostlist, int numhosts, unsigned int p
    portlist[num_ports] = 0;
 
    debug_printf2("Opening with port %d - %d\n", portlist[0], portlist[num_ports-1]);
-   cobo_server_open(unique_id, hostlist, numhosts, portlist, num_ports);
+   rc = cobo_server_open(unique_id, hostlist, numhosts, portlist, num_ports);
    free(portlist);
+   if (rc != COBO_SUCCESS) {
+      err_printf("Could not connect to the root Spindle server\n");
+      return -1;
+   }
 
-   cobo_server_get_root_socket(&root_fd);
-  
-   ldcs_cobo_read_fd(root_fd, &ack, sizeof(ack));
+   if (cobo_server_get_root_socket(&root_fd) != COBO_SUCCESS) {
+      err_printf("Failed to establish connection to the root Spindle server\n");
+      return -1;
+   }
 
-   return(rc);
+   if (ldcs_cobo_read_fd_timeout(root_fd, &ack, sizeof(ack), 2 * cobo_get_startup_timeout_ms()) < 0) {
+      err_printf("Spindle servers did not acknowledge startup\n");
+      return -1;
+   }
+   if (ack != COBO_READY_ACK) {
+      err_printf("Unexpected startup ack message %d from Spindle servers\n", ack);
+      return -1;
+   }
+
+   return 0;
 }
 
 int ldcs_audit_server_fe_md_waitfor_close()
@@ -99,69 +113,41 @@ int ldcs_audit_server_fe_md_waitfor_close()
    }
 }
 
-static int wait_for_read_or_timeout(int fd, int timeout_seconds)
+int ldcs_audit_server_fe_md_waitfor_alive()
 {
-   int nfds, result, error;
-   fd_set rset;
-   struct timeval timeout;
-
-   timeout.tv_sec = timeout_seconds;
-   timeout.tv_usec = 0;
-   
-   for (;;) {
-      FD_ZERO(&rset);
-      FD_SET(fd, &rset);
-      nfds = fd+1;
-
-      result = select(nfds, &rset, NULL, NULL, &timeout);
-      if (result == -1 && errno == EINTR) {
-         continue;
-      }
-      else if (result == -1) {
-         error = errno;
-         err_printf("Failure during select call: %s\n", strerror(error));
-         return -1;
-      }
-      else if (result == 0) {
-         err_printf("Timeout during select call\n");
-         return -2;
-      }
-      else if (result == 1 && FD_ISSET(fd, &rset)) {
-         return 0;
-      }
-      else {
-         err_printf("Unexpected return code %d during select\n", result);
-         return -1;
-      }
-   }
-}
-                                    
-int ldcs_audit_server_fe_md_waitfor_alive(int timeout_seconds)
-{
-   int fd, result;
+   int fd;
    ldcs_message_t out_msg;
 
    debug_printf2("Blocking while waiting for spindle alive\n");
 
    cobo_server_get_root_socket(&fd);
 
-   result = wait_for_read_or_timeout(fd, timeout_seconds);
-   if (result == -1) {
-      err_printf("Error waiting for alive message to be ready\n");
-      return -1;
-   }
-   else if (result == -2) {
-      err_printf("Timeout waiting for alive message\n");
-      return -1;
-   }
-   
    memset(&out_msg, 0, sizeof(out_msg));
-   result = read_msg(fd, &out_msg);
-   if (result == -1) {
-      err_printf("ERROR reading message while waiting for server alive\n");
+   if (read_msg_timeout(fd, &out_msg, cobo_get_startup_timeout_ms()) == -1) {
+      err_printf("No alive response from Spindle servers within %d seconds\n", cobo_get_startup_timeout_ms() / 1000);
       return -1;
    }
    if (out_msg.header.type == LDCS_MSG_ALIVE_RESP)
+      return 0;
+   err_printf("Unexpected message of type %d\n", (int) out_msg.header.type);
+   return -1;
+}
+
+int ldcs_audit_server_fe_md_waitfor_preload()
+{
+   int fd;
+   ldcs_message_t out_msg;
+
+   debug_printf2("Blocking while waiting for spindle preload\n");
+
+   cobo_server_get_root_socket(&fd);
+
+   memset(&out_msg, 0, sizeof(out_msg));
+   if (read_msg(fd, &out_msg) == -1) {
+      err_printf("ERROR reading message while waiting for server preload\n");
+      return -1;
+   }
+   if (out_msg.header.type == LDCS_MSG_PRELOAD_DONE)
       return 0;
    err_printf("Unexpected message of type %d\n", (int) out_msg.header.type);
    return -1;
@@ -192,7 +178,7 @@ int ldcs_audit_server_fe_broadcast(ldcs_message_t *msg, void *data)
    debug_printf("Broadcasting message %s to daemons\n",_message_type_to_str( msg->header.type ) );
 
    cobo_server_get_root_socket(&root_fd);
-   return write_msg(root_fd, msg);
+   return write_msg_nosignal(root_fd, msg);
 }
 
 

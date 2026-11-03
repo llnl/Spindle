@@ -42,8 +42,6 @@ static const char *logging_file = NULL;
 static const char spindle_bootstrap[] = LIBEXECDIR "/spindle_bootstrap";
 static bool sendAndWaitForAlive();
 
-#define STARTUP_TIMEOUT 60
-
 using namespace std;
 
 template<typename T>
@@ -413,9 +411,12 @@ int spindleInitFE(const char **hosts, spindle_args_t *params)
                 params->bundle_cachesize_kb, params->crash_log);
    printSpindleFlags(params->opts);
    debug_printf("Starting FE servers with hostlist of size %u on port %u\n", hosts_size, params->port);
-   ldcs_audit_server_fe_md_open(const_cast<char **>(hosts), hosts_size, 
-                                params->port, params->num_ports, params->unique_id,
-                                &md_data_ptr);
+   if (ldcs_audit_server_fe_md_open(const_cast<char **>(hosts), hosts_size,
+                                    params->port, params->num_ports, params->unique_id,
+                                    &md_data_ptr) == -1) {
+      err_printf("Could not start the Spindle server tree\n");
+      goto fail;
+   }
 
    /* Broadcast parameters */
    debug_printf("Sending parameters to servers\n");
@@ -426,20 +427,44 @@ int spindleInitFE(const char **hosts, spindle_args_t *params)
    msg.header.type = LDCS_MSG_SETTINGS;
    msg.header.len = param_buffer_size;
    msg.data = static_cast<char *>(param_buffer);
-   ldcs_audit_server_fe_broadcast(&msg, md_data_ptr);
+   int result;
+   result = ldcs_audit_server_fe_broadcast(&msg, md_data_ptr);
    free(param_buffer);
+   if (result == -1) {
+      err_printf("Could not send settings to Spindle servers\n");
+      goto fail;
+   }
+
+   /* Wait for servers to indicate startup */
+   if (!sendAndWaitForAlive()) {
+      err_printf("Spindle servers did not report ready\n");
+      goto fail;
+   }
 
    /* Broadcast preload contents */
    if (preload_msg) {
       debug_printf("Sending message with preload information\n");
-      ldcs_audit_server_fe_broadcast(preload_msg, md_data_ptr);
+      result = ldcs_audit_server_fe_broadcast(preload_msg, md_data_ptr);
       cleanPreloadMsg(preload_msg);
+      if (result == -1) {
+         err_printf("Could not send preload list to Spindle servers\n");
+         return -1;
+      }
+
+      /* The root server accepts no client connections while it reads the
+       * preload files, so the job must not start until it is done. */
+      if (ldcs_audit_server_fe_md_waitfor_preload() == -1) {
+         err_printf("Spindle servers did not finish the preload\n");
+         return -1;
+      }
    }
 
-   /* Wait for servers to indicate startup */
-   sendAndWaitForAlive();
+   return 0;
 
-   return 0;   
+ fail:
+   if (preload_msg)
+      cleanPreloadMsg(preload_msg);
+   return -1;
 }
 
 int spindleWaitForCloseFE(spindle_args_t *params)
@@ -508,7 +533,7 @@ static bool sendAndWaitForAlive()
       return false;
    }
 
-   result = ldcs_audit_server_fe_md_waitfor_alive(STARTUP_TIMEOUT);
+   result = ldcs_audit_server_fe_md_waitfor_alive();
    if (result == -1) {
       debug_printf("Failure waiting for alive message\n");
       return false;

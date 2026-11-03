@@ -2100,6 +2100,7 @@ static int handle_preload_filelist(ldcs_process_data_t *procdata, ldcs_message_t
    int num_dirs, num_files, i, global_result = 0, result;
    char *data = (char *) msg->data;
    char *pathname;
+   ldcs_message_t done_msg;
    
    debug_printf2("At top of handle_preload_filelist\n");
 
@@ -2157,6 +2158,15 @@ static int handle_preload_filelist(ldcs_process_data_t *procdata, ldcs_message_t
    result = handle_preload_done(procdata);
    if (result == -1) {
       err_printf("Error from handle_preload_done");
+      global_result = -1;
+   }
+
+   done_msg.header.type = LDCS_MSG_PRELOAD_DONE;
+   done_msg.header.len = 0;
+   done_msg.data = NULL;
+   result = ldcs_audit_server_md_to_frontend(procdata, &done_msg);
+   if (result == -1) {
+      err_printf("Failure sending preload done to FE\n");
       global_result = -1;
    }
 
