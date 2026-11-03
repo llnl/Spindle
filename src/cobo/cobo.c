@@ -36,6 +36,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <assert.h>
 
 #include "ldcs_cobo.h"
+#include "cobo_fault_inject.h"
 #include "spindle_debug.h"
 
 /* Reads environment variable, bails if not set */
@@ -991,6 +992,8 @@ static int cobo_open_tree()
         return -1;
     }
 
+    cobo_test_fault_point("tree", cobo_me);
+
 /*
     if (cobo_me == 0) {
       for (i=0; i < cobo_nprocs; i++) {
@@ -1573,6 +1576,7 @@ int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* 
 
     struct timeval start, end;
     cobo_gettimeofday(&start);
+    cobo_test_exit_hosts();
 
     /* we now know this process is a client, although we don't know what our rank is yet */
     cobo_me = -1;

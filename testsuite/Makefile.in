@@ -365,7 +365,8 @@ BUILT_SOURCES = libtest10.so libtest11.so libtest12.so libtest13.so \
 	long_needed_app_malloc_test long_needed_lib_malloc_test \
 	realpath_free_test realpath_free_lib_test crash_test \
 	crash_test_fixedaddr crash_test_pie libcrashfuncs.so \
-	libcrashctor.so libcrashfixed.so run_crash_tests.sh
+	libcrashctor.so libcrashfixed.so run_crash_tests.sh \
+	run_startup_fault_tests.sh
 @BGQ_BLD_FALSE@DYNAMIC_FLAG = 
 @BGQ_BLD_TRUE@DYNAMIC_FLAG = -dynamic
 @BGQ_BLD_FALSE@IS_BLUEGENE = false
@@ -381,7 +382,7 @@ test_driver_libsLDADD = -ltest10 -ltest11 -ltest12 -ltest13 -ltest14 -ltest15 -l
 test_driver_libsLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite $(MPI_CLDFLAGS) -L$(top_builddir)/src/client/spindle_api -L. $(DYNAMIC_FLAG) -no-install $(LDFLAGS) -Wl,-rpath,$(PWD)/origin_dir -L$(PWD)/origin_dir -Wl,-rpath-link,$(PWD)/origin_dir/origin_subdir -L$(PWD)/exeorigin_dir '-Wl,-rpath,$$ORIGIN/exeorigin_dir'
 REGLIB_SRC = $(srcdir)/registerlib.c
 LD_FUNCDICT = -L$(top_builddir)/testsuite -lfuncdict
-EXTRA_DIST = run_crash_tests_template.sh crash_test.c crash_functions.c crash_functions.h libcrashfuncs.c libcrashctor.c libcrashfixed.c
+EXTRA_DIST = run_crash_tests_template.sh run_startup_fault_tests_template.sh crash_test.c crash_functions.c crash_functions.h libcrashfuncs.c libcrashctor.c libcrashfixed.c
 LONG_NEEDED_PAD = $$(printf '/%.0s' $$(seq 300))
 LONG_NEEDED_TARGET = origin_dir/origin_subdir/liborigintarget.so
 LONG_NEEDED_LIBS = -Wl,--no-as-needed -lc "$(LONG_NEEDED_PAD)$(abs_builddir)/$(LONG_NEEDED_TARGET)" -ldl
@@ -414,11 +415,12 @@ CLEANFILES = libtest10.c libtest11.c libtest12.c libtest13.c \
 	exec_shell.tcsh exec_shell_env.sh exec_shell_expected_output \
 	exec_shell crash_test crash_test_fixedaddr crash_test_pie \
 	libcrashfuncs.so libcrashctor.so libcrashfixed.so \
-	run_crash_tests.sh libbigtls204800.so libbigtls1048576.so \
-	close_range_test libtagmalloc.so liblongdlopendep.so \
-	liblongdlopen.so long_needed_path_test \
-	long_needed_app_malloc_test long_needed_lib_malloc_test \
-	realpath_free_test realpath_free_lib_test
+	run_crash_tests.sh run_startup_fault_tests.sh \
+	libbigtls204800.so libbigtls1048576.so close_range_test \
+	libtagmalloc.so liblongdlopendep.so liblongdlopen.so \
+	long_needed_path_test long_needed_app_malloc_test \
+	long_needed_lib_malloc_test realpath_free_test \
+	realpath_free_lib_test
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -1162,6 +1164,9 @@ libcrashfixed.so: $(srcdir)/libcrashfixed.c
 		-o $@ $(srcdir)/libcrashfixed.c
 
 run_crash_tests.sh: $(srcdir)/run_crash_tests_template.sh $(top_builddir)/Makefile
+	$(AM_V_GEN)$(SED) -e s,TEST_RESOURCE_MANAGER,$(TESTRM),g\;s,SPINDLE_EXEC,$(bindir)/spindle,g\;s,SPINDLE_RC_PATH,$(sysconfdir)/spindle/spindle.rc,g\;s,TEST_RUN_DIR,$(ABS_TEST_DIR),g < $< > $@; chmod 700 $@
+
+run_startup_fault_tests.sh: $(srcdir)/run_startup_fault_tests_template.sh $(top_builddir)/Makefile
 	$(AM_V_GEN)$(SED) -e s,TEST_RESOURCE_MANAGER,$(TESTRM),g\;s,SPINDLE_EXEC,$(bindir)/spindle,g\;s,SPINDLE_RC_PATH,$(sysconfdir)/spindle/spindle.rc,g\;s,TEST_RUN_DIR,$(ABS_TEST_DIR),g < $< > $@; chmod 700 $@
 
 exec_shell.sh: $(srcdir)/exec_shell_template.sh 

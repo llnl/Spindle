@@ -598,10 +598,11 @@ static int sp_init (flux_plugin_t *p,
     else
        unsetenv("SPINDLE_NO_CRASH_DEDUP");
 
-    /*  Pass through the startup time limit */
+    /*  Pass through the startup time limit and testsuite fault injection */
     {
        static const char *passthrough[] = {
-          "COBO_CONNECT_TIMELIMIT", NULL
+          "COBO_CONNECT_TIMELIMIT", "SPINDLE_TEST_BE_EXIT", "SPINDLE_TEST_BE_EXIT_HOSTS",
+          "SPINDLE_TEST_BE_STALL", "SPINDLE_TEST_BE_STALL_SECS", "SPINDLE_TEST_BE_FAULT_PHASE", NULL
        };
        const char *val;
        int j;

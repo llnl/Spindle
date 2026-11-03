@@ -113,6 +113,7 @@ am__dirstamp = $(am__leading_dot)dirstamp
 am_libldcs_cobo_la_OBJECTS = $(top_builddir)/../cobo/cobo.lo \
 	$(top_builddir)/../cobo/handshake.lo \
 	$(top_builddir)/../cobo/cobo_comm.lo \
+	$(top_builddir)/../cobo/cobo_fault_inject.lo \
 	$(top_builddir)/../cobo/cobo_handshake.lo
 libldcs_cobo_la_OBJECTS = $(am_libldcs_cobo_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -136,6 +137,7 @@ depcomp = $(SHELL) $(top_srcdir)/../../scripts/depcomp
 am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = $(top_builddir)/../cobo/$(DEPDIR)/cobo.Plo \
 	$(top_builddir)/../cobo/$(DEPDIR)/cobo_comm.Plo \
+	$(top_builddir)/../cobo/$(DEPDIR)/cobo_fault_inject.Plo \
 	$(top_builddir)/../cobo/$(DEPDIR)/cobo_handshake.Plo \
 	$(top_builddir)/../cobo/$(DEPDIR)/handshake.Plo
 am__mv = mv -f
@@ -339,7 +341,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 noinst_LTLIBRARIES = libldcs_cobo.la
-libldcs_cobo_la_SOURCES = $(top_srcdir)/../cobo/cobo.c $(top_srcdir)/../cobo/handshake.c $(top_srcdir)/../cobo/cobo_comm.c $(top_srcdir)/../cobo/cobo_handshake.c
+libldcs_cobo_la_SOURCES = $(top_srcdir)/../cobo/cobo.c $(top_srcdir)/../cobo/handshake.c $(top_srcdir)/../cobo/cobo_comm.c $(top_srcdir)/../cobo/cobo_fault_inject.c $(top_srcdir)/../cobo/cobo_handshake.c
 AM_CPPFLAGS = -I$(top_srcdir)/../logging -I$(top_srcdir)/../cobo -I$(top_srcdir)/../include $(MUNGE_CFLAGS) $(GCRYPT_CFLAGS)
 all: all-am
 
@@ -400,6 +402,9 @@ $(top_builddir)/../cobo/handshake.lo:  \
 $(top_builddir)/../cobo/cobo_comm.lo:  \
 	$(top_builddir)/../cobo/$(am__dirstamp) \
 	$(top_builddir)/../cobo/$(DEPDIR)/$(am__dirstamp)
+$(top_builddir)/../cobo/cobo_fault_inject.lo:  \
+	$(top_builddir)/../cobo/$(am__dirstamp) \
+	$(top_builddir)/../cobo/$(DEPDIR)/$(am__dirstamp)
 $(top_builddir)/../cobo/cobo_handshake.lo:  \
 	$(top_builddir)/../cobo/$(am__dirstamp) \
 	$(top_builddir)/../cobo/$(DEPDIR)/$(am__dirstamp)
@@ -417,6 +422,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../cobo/$(DEPDIR)/cobo.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../cobo/$(DEPDIR)/cobo_comm.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../cobo/$(DEPDIR)/cobo_fault_inject.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../cobo/$(DEPDIR)/cobo_handshake.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../cobo/$(DEPDIR)/handshake.Plo@am__quote@ # am--include-marker
 
@@ -586,6 +592,7 @@ clean-am: clean-generic clean-libtool clean-noinstLTLIBRARIES \
 distclean: distclean-am
 		-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_comm.Plo
+	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_fault_inject.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_handshake.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/handshake.Plo
 	-rm -f Makefile
@@ -635,6 +642,7 @@ installcheck-am:
 maintainer-clean: maintainer-clean-am
 		-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_comm.Plo
+	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_fault_inject.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/cobo_handshake.Plo
 	-rm -f $(top_builddir)/../cobo/$(DEPDIR)/handshake.Plo
 	-rm -f Makefile

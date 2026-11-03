@@ -30,6 +30,7 @@
 #include "ldcs_audit_server_handlers.h"
 #include "ldcs_cache.h"
 #include "ldcs_cobo.h"
+#include "cobo_fault_inject.h"
 #include "cobo_comm.h"
 #include "config.h"
 
@@ -412,4 +413,9 @@ int ldcs_audit_server_md_get_num_children(ldcs_process_data_t *procdata)
 
 int ldcs_audit_server_md_allreduce_AND( uint64_t *val ){
     return cobo_allreduce( val, COBO_OP_BITWISE_AND ) == COBO_SUCCESS ? 0 : -1;
+}
+
+void ldcs_audit_server_md_test_fault_point(const char *phase, int md_rank)
+{
+   cobo_test_fault_point(phase, md_rank);
 }

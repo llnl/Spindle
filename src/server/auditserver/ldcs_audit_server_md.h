@@ -109,6 +109,7 @@ int ldcs_audit_server_md_get_num_children(ldcs_process_data_t *procdata);
 int ldcs_audit_server_md_is_parent(node_peer_t peer);
 
 int ldcs_audit_server_md_allreduce_AND( uint64_t *val );
+void ldcs_audit_server_md_test_fault_point(const char *phase, int md_rank);
 
    
 #if defined(__cplusplus)

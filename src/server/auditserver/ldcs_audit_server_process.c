@@ -229,6 +229,7 @@ int ldcs_audit_server_process(spindle_args_t *args)
       return -1;
    }
    ldcs_process_data.serverid = serverid;
+   ldcs_audit_server_md_test_fault_point("ready", ldcs_process_data.md_rank);
    fd = ldcs_get_fd(serverid);
    ldcs_process_data.serverfd = fd;
   
