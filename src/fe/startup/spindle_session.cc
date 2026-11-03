@@ -56,10 +56,10 @@ static int sock = -1;
 #define RET_END_SESSION 3
 
 void signal_init_done();
-static void setup_init_done_pipe();
+static int setup_init_done_pipe();
 static void setup_init_done_pipe_parent();
 static void setup_init_done_pipe_child();
-static void waitfor_init_done();
+static bool waitfor_init_done();
 
 extern bool getRandom(void *bytes, size_t bytes_size);
 
@@ -457,8 +457,9 @@ int init_session(spindle_args_t *args, const ConfigMap &config, Launcher *launch
          (void)! write(1, "\n", 1);
       }
 
-      setup_init_done_pipe();
-      
+      if (setup_init_done_pipe() == -1)
+         exit(-1);
+
       close(0);
       open("/dev/null", O_RDONLY);
       close(1);
@@ -473,9 +474,10 @@ int init_session(spindle_args_t *args, const ConfigMap &config, Launcher *launch
          exit(-1);
       }
       else if (pid > 0) {
-         debug_printf("Session daemon startup was successful.  Exiting\n");
          setup_init_done_pipe_parent();
-         waitfor_init_done();
+         if (!waitfor_init_done())
+            exit(-1);
+         debug_printf("Session daemon startup was successful.  Exiting\n");
          exit(0);
       }
       else {
@@ -614,16 +616,17 @@ int return_session_cmd(app_id_t appid, int app_argc, char **app_argv)
 #define PIPE_RD 0
 #define PIPE_WR 1
 static int init_done_pipe[2] = { -1, -1 };
-void setup_init_done_pipe()
+static int setup_init_done_pipe()
 {
    int result, error;
-   result = pipe(init_done_pipe);
+   result = pipe2(init_done_pipe, O_CLOEXEC);
    if (result == -1) {
       error = errno;
       err_printf("Could not setup init_done_pipe: %s\n", strerror(error));
       init_done_pipe[PIPE_RD] = init_done_pipe[PIPE_WR] = -1;
-      return;
+      return -1;
    }
+   return 0;
 }
 
 void setup_init_done_pipe_parent() {
@@ -657,14 +660,11 @@ void signal_init_done() {
    init_done_pipe[PIPE_WR] = -1;
 }
       
-void waitfor_init_done()
+static bool waitfor_init_done()
 {
    int result, error;
    char x = '0';
-   
-   if (init_done_pipe[PIPE_RD] == -1)
-      return;
-   
+
    debug_printf2("Waiting for session start to finish before exiting launcher exec\n");
    do {
       result = read(init_done_pipe[PIPE_RD], &x, 1);
@@ -673,9 +673,13 @@ void waitfor_init_done()
       error = errno;
       err_printf("Could not read from init_done pipe: %s\n", strerror(error));
    }
-   if (x != 'x') {
+   else if (result == 0) {
+      err_printf("Session daemon exited before finishing startup\n");
+   }
+   else if (x != 'x') {
       err_printf("Unexpected character from %c pipe_rd\n", x);
    }
    close(init_done_pipe[PIPE_RD]);
    init_done_pipe[PIPE_RD] = -1;
+   return result == 1 && x == 'x';
 }
