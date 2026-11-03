@@ -3027,7 +3027,10 @@ int handle_cachepath_consensus(ldcs_process_data_t *procdata)
     debug_printf3( "  procdata->commpath         = %s\n", procdata->commpath );
     debug_printf3( "  num_children               = %d\n", num_children );
 
-    ldcs_audit_server_md_allreduce_AND( &procdata->cachepath_bitidx );
+    if (ldcs_audit_server_md_allreduce_AND( &procdata->cachepath_bitidx ) == -1) {
+        err_printf("Cachepath consensus reduction failed\n");
+        return -1;
+    }
     debug_printf3( "The consensus value for procdata->cachepath_bitidx is:  %#"PRIx64"\n", procdata->cachepath_bitidx );
 
     if( procdata->cachepath_bitidx == 0 ) {

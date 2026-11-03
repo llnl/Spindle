@@ -93,8 +93,9 @@ int ldcs_audit_server_md_init(unsigned int port, unsigned int num_ports,
    /* initialize the client (read environment variables) */
    debug_printf2("Opening cobo with port %d - %d\n", portlist[0], portlist[num_ports-1]);
    if (cobo_open(unique_id, (int *) portlist, num_ports, &my_rank, &ranks) != COBO_SUCCESS) {
-      printf("Failed to init\n");
-      exit(1);
+      err_printf("Failed to open the server tree\n");
+      free(portlist);
+      return -1;
    }
    debug_printf2("cobo_open complete. Cobo rank %d/%d\n", my_rank, ranks);
    free(portlist);
@@ -106,19 +107,24 @@ int ldcs_audit_server_md_init(unsigned int port, unsigned int num_ports,
    cobo_get_num_childs(&fanout);
    data->server_stat.md_fan_out = data->md_fan_out = fanout;
 
-   cobo_barrier();
+   if (cobo_barrier() != COBO_SUCCESS) {
+      err_printf("Server tree barrier failed\n");
+      return -1;
+   }
 
    /* send ack about being ready */
-   if (data->md_rank == 0) { 
-      int root_fd, ack=13;
+   if (data->md_rank == 0) {
+      int root_fd, ack = COBO_READY_ACK;
 
       /* send fe client signal to stop (ack)  */
-      cobo_get_parent_socket(&root_fd);
-    
-      ldcs_cobo_write_fd(root_fd, &ack, sizeof(ack));
+      if (cobo_get_parent_socket(&root_fd) != COBO_SUCCESS ||
+          ldcs_cobo_write_fd(root_fd, &ack, sizeof(ack)) < 0) {
+         err_printf("Could not send ready ack to FE\n");
+         return -1;
+      }
       debug_printf3("sent FE client signal that server are ready %d\n",ack);
    }
-  
+
    return(rc);
 }
 
@@ -401,6 +407,6 @@ int ldcs_audit_server_md_get_num_children(ldcs_process_data_t *procdata)
    return num_childs;
 }
 
-void ldcs_audit_server_md_allreduce_AND( uint64_t *val ){
-    cobo_allreduce( val, COBO_OP_BITWISE_AND );
+int ldcs_audit_server_md_allreduce_AND( uint64_t *val ){
+    return cobo_allreduce( val, COBO_OP_BITWISE_AND ) == COBO_SUCCESS ? 0 : -1;
 }

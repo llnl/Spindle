@@ -81,7 +81,10 @@ int ldcs_audit_server_network_setup(unsigned int port, unsigned int num_ports, u
    memset(&ldcs_process_data, 0, sizeof(ldcs_process_data));
 
    /* Initialize server->server network */
-   ldcs_audit_server_md_init(port, num_ports, unique_id, &ldcs_process_data);
+   if (ldcs_audit_server_md_init(port, num_ports, unique_id, &ldcs_process_data) == -1) {
+      err_printf("Error initializing server network\n");
+      return -1;
+   }
 
    /* Use network to broadcast configuration parameters */
    ldcs_message_t msg;

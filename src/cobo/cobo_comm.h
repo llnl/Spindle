@@ -19,6 +19,9 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 
 #define COBO_SUCCESS (0)
 
+/* Value rank 0 sends the FE once every server has joined the tree */
+#define COBO_READY_ACK 13
+
 #include "ldcs_api.h"
 
 int ldcs_cobo_read_fd(int fd, void* buf, int size);

@@ -1164,7 +1164,8 @@ static int cobo_allreduce_max_int_tree(int* sendbuf, int* recvbuf)
     }
 
     /* broadcast result of reduction from rank 0 to all tasks */
-    cobo_bcast_tree(recvbuf, sizeof(int));
+    if (cobo_bcast_tree(recvbuf, sizeof(int)) != COBO_SUCCESS)
+        return -1;
 
     return rc;
 }
@@ -1294,7 +1295,10 @@ int cobo_barrier()
     /* use allreduce of an int for our barrier */
     int dummy;
     int myint = 1;
-    cobo_allreduce_max_int_tree(&myint, &dummy);
+    if (cobo_allreduce_max_int_tree(&myint, &dummy) != COBO_SUCCESS) {
+        err_printf("Barrier failed\n");
+        return -1;
+    }
 
     cobo_gettimeofday(&end);
     debug_printf3("Exiting cobo_barrier(), took %f seconds for %d procs\n", cobo_getsecs(&end,&start), cobo_nprocs);
@@ -1433,7 +1437,8 @@ static int cobo_allreduce_max_int(int* sendint, int* recvint)
     debug_printf3("Starting cobo_allreducemaxint()");
 
     /* compute allreduce via tree */
-    cobo_allreduce_max_int_tree(sendint, recvint);
+    if (cobo_allreduce_max_int_tree(sendint, recvint) != COBO_SUCCESS)
+        return -1;
 
     cobo_gettimeofday(&end);
     debug_printf3("Exiting cobo_allreducemaxint(), took %f seconds for %d procs\n", cobo_getsecs(&end,&start), cobo_nprocs);
@@ -1533,7 +1538,8 @@ int cobo_allreduce( uint64_t *pval, cobo_op_t op ){
     }
 
     /* broadcast result of reduction from rank 0 to all tasks */
-    cobo_bcast_tree(pval, sizeof(int64_t));
+    if (cobo_bcast_tree(pval, sizeof(int64_t)) != COBO_SUCCESS)
+        return -1;
 
     return COBO_SUCCESS;
 }
@@ -1593,7 +1599,10 @@ int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* 
     }
 
     /* open the tree */
-    cobo_open_tree();
+    if (cobo_open_tree() != COBO_SUCCESS) {
+        err_printf("Failed to connect the tree\n");
+        return -1;
+    }
 
     /* need to check that tree opened successfully before returning, so do a barrier */
     if (cobo_barrier() != COBO_SUCCESS) {
