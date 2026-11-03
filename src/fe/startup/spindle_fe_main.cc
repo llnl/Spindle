@@ -156,6 +156,7 @@ int main(int argc, char *argv[])
             int iresult = spindleInitFE(hosts, params);
             if (iresult == -1) {
                err_printf("spindleInitFE returned an error\n");
+               launcher->handleShutdown();
                return -1;
             }
             debug_printf("Done calling spindleInitFE\n");
@@ -240,6 +241,7 @@ int main(int argc, char *argv[])
          int iresult = spindleInitFE(hosts, params);
          if (iresult == -1) {
             err_printf("[LMON FE] spindleInitFE returned an error\n");
+            launcher->handleShutdown();
             return -1;
          }
          debug_printf("Done calling spindleInitFE\n");
