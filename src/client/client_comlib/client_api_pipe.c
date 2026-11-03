@@ -73,6 +73,8 @@ static int write_pipe(int fd, const void *data, int bytes)
      bwrite     = left;
      bwrote     = write(fd, dataptr, bwrite);
      if (bwrote == -1) {
+        if (errno == EINTR)
+           continue;
         err_printf("Failed to wrote bytes to pipe: %s\n", strerror(errno));
         return -1;
      }
@@ -96,6 +98,8 @@ static int read_pipe(int fd, void *data, int bytes)
       btoread    = left;
       bread      = read(fd, dataptr, btoread);
       if (bread == -1) {
+         if (errno == EINTR)
+            continue;
          err_printf("Error reading data from pipe: %s\n", strerror(errno));
          return -1;
       }

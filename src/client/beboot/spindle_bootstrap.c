@@ -78,7 +78,10 @@ static int establish_connection()
       return -1;
 
    send_pid(ldcsid);
-   send_rankinfo_query(ldcsid, &rankinfo[0], &rankinfo[1], &rankinfo[2], &rankinfo[3]);      
+   if (send_rankinfo_query(ldcsid, &rankinfo[0], &rankinfo[1], &rankinfo[2], &rankinfo[3]) == -1) {
+      err_printf("Failed to get rank info from server\n");
+      return -1;
+   }
    if (opts & OPT_NUMA)
       send_cpu(ldcsid, get_cur_cpu());
 
@@ -406,7 +409,10 @@ int main(int argc, char *argv[])
    /**
     * Exec the user's application.
     **/
-   setup_environment();
+   if (setup_environment() != 0) {
+      err_printf("spindle_bootstrap could not get the cache path from the server\n");
+      return -1;
+   }
    execvp(executable, cmdline);
    
 
