@@ -229,7 +229,7 @@ static int* cobo_int_dup(int* src, int n)
 }
 
 /* write size bytes from buf into fd, retry if necessary */
-static int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
+int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
 {
     int rc;
     int n = 0;
@@ -253,7 +253,7 @@ static int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
                 err_printf("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
                            fd, offset, size-n);
             } else {
-                err_printf("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
+                debug_printf3("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
                            fd, offset, size-n);
             }
 	    return -1;
@@ -273,7 +273,7 @@ static int cobo_write_fd(int fd, void* buf, int size)
 }
 
 /* read size bytes into buf from fd, retry if necessary */
-static int cobo_read_fd_w_timeout(int fd, void* buf, int size, int usecs)
+int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms)
 {
     int rc;
     int n = 0;
@@ -286,7 +286,7 @@ static int cobo_read_fd_w_timeout(int fd, void* buf, int size, int usecs)
 
     while (n < size) {
         /* poll the connection with a timeout value */
-        int poll_rc = poll(&fds, 1, usecs);
+        int poll_rc = poll(&fds, 1, timeout_ms);
         if (poll_rc < 0) {
             err_printf("Polling file descriptor for read (read(fd=%d,offset=%p,size=%d) %m errno=%d)\n",
                        fd, offset, size-n, errno);
