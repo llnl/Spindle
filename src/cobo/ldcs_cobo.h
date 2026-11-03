@@ -64,6 +64,8 @@ extern "C" {
 #define cobo_bcast_down COMBINE(COBO_NAMESPACE, cobo_bcast_down)
 #define cobo_get_child_socket COMBINE(COBO_NAMESPACE, cobo_get_child_socket)
 #define cobo_set_handshake COMBINE(COBO_NAMESPACE, cobo_set_handshake)
+#define cobo_get_startup_timeout_ms COMBINE(COBO_NAMESPACE, cobo_get_startup_timeout_ms)
+#define cobo_now_ms COMBINE(COBO_NAMESPACE, cobo_now_ms)
 #define cobo_read_fd_w_timeout COMBINE(COBO_NAMESPACE, cobo_read_fd_w_timeout)
 #define cobo_write_fd_w_suppress COMBINE(COBO_NAMESPACE, cobo_write_fd_w_suppress)
 #define cobo_preconnect_cb_t COMBINE(COBO_NAMESPACE, cobo_preconnect_cb_t)

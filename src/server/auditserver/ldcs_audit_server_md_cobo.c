@@ -261,13 +261,12 @@ int ldcs_audit_server_md_trash_bytes(node_peer_t peer, size_t size)
 
 int ldcs_audit_server_md_recv_from_parent(ldcs_message_t *msg)
 {
-   int fd, rc;
-   node_peer_t peer;
+   int fd = -1;
 
-   cobo_get_parent_socket(&fd);
-   rc = read_msg(fd, &peer, msg);
-   if (rc == -1) {
-      debug_printf2("Error return during recv from parent.\n");
+   if (cobo_get_parent_socket(&fd) != COBO_SUCCESS)
+      return -1;
+   if (read_msg_timeout(fd, msg, cobo_get_startup_timeout_ms()) == -1) {
+      err_printf("No message from parent within the startup time limit\n");
       return -1;
    }
    return 0;

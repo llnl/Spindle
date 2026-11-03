@@ -30,6 +30,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <poll.h>
 #include <assert.h>
@@ -129,6 +130,18 @@ static struct timeval tree_start, tree_end;
 #if defined(SIONDEBUG) 
 #include "sion_debug.h"
 #endif
+
+long long cobo_now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+int cobo_get_startup_timeout_ms(void)
+{
+    return (int) (cobo_connect_timelimit * 1000);
+}
 
 static cobo_preconnect_cb_t preconnect_cb = NULL;
 
@@ -235,6 +248,9 @@ int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
     int n = 0;
     char* offset = (char*) buf;
 
+    if (fd < 0)
+        return -1;
+
     while (n < size) {
        rc = write(fd, offset, size - n);
 
@@ -272,12 +288,18 @@ static int cobo_write_fd(int fd, void* buf, int size)
     return cobo_write_fd_w_suppress(fd, buf, size, 0);
 }
 
-/* read size bytes into buf from fd, retry if necessary */
+/* read size bytes into buf from fd, within timeout_ms, no limit if negative */
 int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms)
 {
     int rc;
     int n = 0;
     char* offset = (char*) buf;
+    long long deadline = cobo_now_ms() + timeout_ms;
+
+    if (fd < 0) {
+        err_printf("Invalid file descriptor %d for read\n", fd);
+        return -1;
+    }
 
     struct pollfd fds;
     fds.fd      = fd;
@@ -285,13 +307,20 @@ int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms)
     fds.revents = 0x0;
 
     while (n < size) {
-        /* poll the connection with a timeout value */
-        int poll_rc = poll(&fds, 1, timeout_ms);
+        int wait_ms = -1;
+        if (timeout_ms >= 0) {
+            long long remaining = deadline - cobo_now_ms();
+            wait_ms = remaining > 0 ? (int) remaining : 0;
+        }
+        int poll_rc = poll(&fds, 1, wait_ms);
         if (poll_rc < 0) {
+            if (errno == EINTR)
+                continue;
             err_printf("Polling file descriptor for read (read(fd=%d,offset=%p,size=%d) %m errno=%d)\n",
                        fd, offset, size-n, errno);
             return -1;
         } else if (poll_rc == 0) {
+            debug_printf3("Timed out reading %d bytes from fd %d\n", size-n, fd);
             return -1;
         }
 
@@ -341,10 +370,10 @@ int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms)
     return n;
 }
 
-/* read size bytes into buf from fd, retry if necessary */
+/* read size bytes into buf from fd, within the startup time limit */
 static int cobo_read_fd(int fd, void* buf, int size)
 {
-    return cobo_read_fd_w_timeout(fd, buf, size, -1);
+    return cobo_read_fd_w_timeout(fd, buf, size, cobo_get_startup_timeout_ms());
 }
 
 /* Open a connection on socket FD to peer at ADDR (which LEN bytes long).
@@ -518,6 +547,7 @@ static int cobo_connect_hostname(char* hostname, int rank)
                    case HSHAKE_DROP_CONNECTION:
                       debug_printf3("Handshake said to drop connection\n");
                       close(s);
+                      s = -1;
                       continue;
                    case HSHAKE_ABORT:
                       handle_security_error(spindle_handshake_last_error_str());
@@ -572,6 +602,7 @@ static int cobo_connect_hostname(char* hostname, int rank)
                 /* if the connection test failed, close the socket, otherwise we've got a good connection */
                 if (test_failed) {
                     close(s);
+                    s = -1;
                 } else {
                     connected = 1;
                     break;
@@ -822,11 +853,42 @@ static int cobo_open_tree()
 
     /* accept a connection from parent and receive socket table */
     int reply_timeout = cobo_connect_timeout * 100;
+    long long accept_deadline = cobo_now_ms() + cobo_get_startup_timeout_ms();
     int have_parent = 0;
+    /* nonblocking as otherwiseo a connection reset between poll and accept would block */
+    fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL) | O_NONBLOCK);
     while (!have_parent) {
         struct sockaddr parent_addr;
         socklen_t parent_len = sizeof(parent_addr);
+        struct pollfd pfd;
+        long long remaining = accept_deadline - cobo_now_ms();
+        if (remaining <= 0) {
+            err_printf("Timed out waiting for parent to connect\n");
+            cobo_parent_fd = -1;
+            close(sockfd);
+            return -1;
+        }
+        pfd.fd = sockfd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int prc = poll(&pfd, 1, (int) remaining);
+        if (prc < 0 && errno != EINTR) {
+            err_printf("Polling listen socket failed (%m errno=%d)\n", errno);
+            cobo_parent_fd = -1;
+            close(sockfd);
+            return -1;
+        }
+        if (prc <= 0)
+            continue;
         cobo_parent_fd = accept(sockfd, (struct sockaddr *) &parent_addr, &parent_len);
+        if (cobo_parent_fd < 0) {
+            if (errno == EINTR || errno == ECONNABORTED ||
+                errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            err_printf("Accepting parent connection failed (%m errno=%d)\n", errno);
+            close(sockfd);
+            return -1;
+        }
 
         _cobo_opt_socket(cobo_parent_fd);
 
