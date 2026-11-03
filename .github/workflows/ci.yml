@@ -22,7 +22,7 @@ jobs:
     name: Testsuite (Serial, Ubuntu)
     environment: Spindle CI
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check out Spindle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -62,6 +62,10 @@ jobs:
       - name: Run spindle-serial-ubuntu crash tests
         run: |
           docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_crash_tests.sh --launcher=serial --scratch=/tmp/spindle_crash_test'
+
+      - name: Run spindle-serial-ubuntu startup fault tests
+        run: |
+          docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=serial'
 
       - name: Bring spindle-serial-ubuntu down
         id: serial-ubuntu-down
@@ -75,7 +79,7 @@ jobs:
     name: Testsuite (Serial, Ubuntu, arm64)
     environment: Spindle CI
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out Spindle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -116,6 +120,10 @@ jobs:
         run: |
           docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_crash_tests.sh --launcher=serial --scratch=/tmp/spindle_crash_test'
 
+      - name: Run spindle-serial-ubuntu startup fault tests
+        run: |
+          docker exec spindlenode bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=serial'
+
       - name: Bring spindle-serial-ubuntu down
         id: serial-ubuntu-down
         if: ${{ always() }}
@@ -128,7 +136,7 @@ jobs:
     name: Testsuite (Flux, Ubuntu)
     environment: Spindle CI
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Check out Spindle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -180,6 +188,14 @@ jobs:
       - name: Run spindle-flux-ubuntu original-path crash test
         run: |
           docker exec node-1 bash -c 'cd Spindle-build/testsuite && flux alloc --nodes=${workers} ./run_crash_tests.sh --launcher=flux --nodes=${workers} --scratch=/shared/spindle_crash_test --orig-path'
+
+      - name: Run spindle-flux-ubuntu startup fault tests
+        run: |
+          docker exec node-1 bash -c 'cd Spindle-build/testsuite && flux alloc --nodes=${workers} ./run_startup_fault_tests.sh --launcher=flux --nodes=${workers}'
+
+      - name: Run spindle-flux-ubuntu session startup fault tests
+        run: |
+          docker exec node-1 bash -c 'cd Spindle-build/testsuite && flux alloc --nodes=${workers} ./run_startup_fault_tests.sh --launcher=flux --nodes=${workers} --session'
 
       - name: Bring spindle-flux-ubuntu down
         id: flux-ubuntu-down
@@ -260,7 +276,7 @@ jobs:
     name: Testsuite (Slurm srun, Ubuntu)
     environment: Spindle CI
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check out Spindle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -306,6 +322,10 @@ jobs:
         run: |
           docker exec slurm-srun-head bash -c 'cd Spindle-build/testsuite && salloc -n${workers} -N${workers} ./runTests ${workers}'
 
+      - name: Run spindle-slurm-srun-ubuntu startup fault tests
+        run: |
+          docker exec slurm-srun-head bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=slurm --nodes=${workers}'
+
       - name: Bring spindle-slurm-ubuntu down
         id: slurm-ubuntu-down
         if: ${{ always() }}
@@ -318,7 +338,7 @@ jobs:
     name: Testsuite (Slurm Plugin, Ubuntu)
     environment: Spindle CI
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Check out Spindle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -389,6 +409,10 @@ jobs:
       - name: Run spindle-slurm-plugin-ubuntu original-path crash test
         run: |
           docker exec slurm-plugin-head bash -c 'cd Spindle-build/testsuite && ./run_crash_tests.sh --launcher=slurm-plugin --nodes=${workers} --scratch=/shared/spindle_crash_test --orig-path'
+
+      - name: Run spindle-slurm-plugin-ubuntu startup fault tests
+        run: |
+          docker exec slurm-plugin-head bash -c 'cd Spindle-build/testsuite && ./run_startup_fault_tests.sh --launcher=slurm-plugin --nodes=${workers}'
 
       - name: Bring spindle-slurm-plugin-ubuntu down
         id: slurm-ubuntu-down
