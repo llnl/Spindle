@@ -303,7 +303,10 @@ int ldcs_audit_server_md_cobo_CB(int fd, int nc, void *data)
       return -1;
    }
 
+   /* A handler failure is not a failure of the *connection*. */
    rc = handle_server_message(ldcs_process_data, peer, &msg);
+   if (rc == -1)
+      err_printf("Error handling %s from fd %d\n", _message_type_to_str(msg.header.type), fd);
 
    ldcs_process_data->server_stat.md_cb.cnt++;
    ldcs_process_data->server_stat.md_cb.time+=(ldcs_get_time() - starttime);
@@ -311,7 +314,7 @@ int ldcs_audit_server_md_cobo_CB(int fd, int nc, void *data)
    if (msg.data)
       free(msg.data);
 
-   return(rc);
+   return 0;
 }
 
 int ldcs_audit_server_md_send(ldcs_process_data_t *ldcs_process_data, ldcs_message_t *msg, node_peer_t peer)
