@@ -48,14 +48,14 @@ fail() { echo "FAIL: $1"; FAILED=$((FAILED + 1)); }
 #   @LAST_HOST@: the hostname of the last node
 #   @HALF@:      half the time limit
 CASES_TABLE=(
-# name             ; environment variables                                          ; expected result
- 'baseline         ;                                                                ; success'
- 'delay-rank-tree  ; SPINDLE_TEST_BE_STALL=@MID@ SPINDLE_TEST_BE_STALL_SECS=@HALF@  ; success'
- 'exit-host-early  ; SPINDLE_TEST_BE_EXIT_HOSTS=@LAST_HOST@                         ; failure'
- 'exit-rank-tree   ; SPINDLE_TEST_BE_EXIT=@MID@                                     ; failure'
- 'stall-rank-tree  ; SPINDLE_TEST_BE_STALL=@MID@                                    ; failure'
- 'exit-rank-ready  ; SPINDLE_TEST_BE_EXIT=@LAST@ SPINDLE_TEST_BE_FAULT_PHASE=ready  ; failure'
- 'stall-rank-ready ; SPINDLE_TEST_BE_STALL=@LAST@ SPINDLE_TEST_BE_FAULT_PHASE=ready ; failure'
+# name             ; environment variables                                                                         ; expected result
+ 'baseline         ;                                                                                               ; success'
+ 'delay-rank-tree  ; SPINDLE_TEST_BE_STALL=@MID@ SPINDLE_TEST_BE_STALL_SECS=@HALF@ SPINDLE_TEST_BE_FAULT_PHASE=tree ; success'
+ 'exit-host-early  ; SPINDLE_TEST_BE_EXIT_HOSTS=@LAST_HOST@                                                        ; failure'
+ 'exit-rank-tree   ; SPINDLE_TEST_BE_EXIT=@MID@ SPINDLE_TEST_BE_FAULT_PHASE=tree                                   ; failure'
+ 'stall-rank-tree  ; SPINDLE_TEST_BE_STALL=@MID@ SPINDLE_TEST_BE_FAULT_PHASE=tree                                  ; failure'
+ 'exit-rank-ready  ; SPINDLE_TEST_BE_EXIT=@LAST@ SPINDLE_TEST_BE_FAULT_PHASE=ready                                 ; failure'
+ 'stall-rank-ready ; SPINDLE_TEST_BE_STALL=@LAST@ SPINDLE_TEST_BE_FAULT_PHASE=ready                                ; failure'
 )
 
 trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; echo "${s%"${s##*[![:space:]]}"}"; }

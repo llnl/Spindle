@@ -28,6 +28,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <poll.h>
 #include "cobo_fault_inject.h"
 
+/* Check whether comma-separated list contains item. */
 static int list_contains(const char *list, const char *item)
 {
     size_t len = strlen(item);
@@ -65,23 +66,44 @@ static void stall(void)
     }
 }
 
+/* Handles fault points in cobo_open_tree and just before READY.
+ * phase is either "tree" or "ready" to select the desired point. */
 void cobo_test_fault_point(const char *phase, int rank)
 {
     char rank_s[16];
-    const char *want = getenv("SPINDLE_TEST_BE_FAULT_PHASE");
-    const char *list;
+    const char *selected_phase = getenv("SPINDLE_TEST_BE_FAULT_PHASE");
+    const char *exit_list = getenv("SPINDLE_TEST_BE_EXIT");
+    const char *stall_list = getenv("SPINDLE_TEST_BE_STALL");
 
-    if (strcmp(want ? want : "tree", phase) != 0)
+    /* Fault injection is disabled unless SPINDLE_TEST_BE_FAULT_PHASE is set and
+     * at least one of SPINDLE_TEST_BE_EXIT or SPINDLE_TEST_BE_STALL is set */
+    if (!selected_phase || !*selected_phase)
         return;
+    if ((!exit_list || !*exit_list) && (!stall_list || !*stall_list))
+        return;
+
+    /* Check if this is the right phase for the fault point. */
+    if (strcmp(selected_phase, phase) != 0)
+        return;
+
+    /* Check if this is the right rank for the fault point. */
     snprintf(rank_s, sizeof(rank_s), "%d", rank);
-    list = getenv("SPINDLE_TEST_BE_EXIT");
-    if (list && list_contains(list, rank_s))
+
+    /* If this rank is listed in SPINDLE_TEST_BE_EXIT,
+     * exit at the fault point. */
+    if (exit_list && list_contains(exit_list, rank_s))
         _exit(1);
-    list = getenv("SPINDLE_TEST_BE_STALL");
-    if (list && list_contains(list, rank_s))
+
+    /* If this rank is listed in SPINDLE_TEST_BE_STALL,
+     * stall at the fault point. */
+    if (stall_list && list_contains(stall_list, rank_s))
         stall();
 }
 
+/* The fault point at the beginning of cobo_open occurs before
+ * ranks have been assigned and so uses hostname rather than 
+ * rank. Later fault points use rank so we can make some ranks
+ * within an node exit or stall while others proceed normally. */
 void cobo_test_exit_hosts(void)
 {
     char host[256];
