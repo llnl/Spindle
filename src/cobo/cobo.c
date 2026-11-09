@@ -35,6 +35,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <poll.h>
 #include <assert.h>
 
+#include "config.h"
 #include "ldcs_cobo.h"
 #include "cobo_fault_inject.h"
 #include "spindle_debug.h"

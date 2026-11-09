@@ -816,6 +816,8 @@ with_cachepath
 with_commpaths
 with_commpath
 with_default_local_prefix
+with_default_connect_timelimit
+with_default_ready_timelimit
 with_testrm
 with_rm
 enable_slurm
@@ -1549,6 +1551,12 @@ Optional Packages:
   --with-default-local-prefix=DIRS
                           Colon-seperated list of directories that Spindle
                           will not cache files out of
+  --with-default-connect-timelimit=SECS
+                          Time limit for Spindle startup connections; default
+                          for COBO_CONNECT_TIMELIMIT
+  --with-default-ready-timelimit=SECS
+                          Time limit for applications to wait for the Spindle
+                          server to start; default for SPINDLE_READY_TIMELIMIT
   --with-testrm=ARG
   --with-rm=ARG           Default resource manager (valid options are 'slurm',
                           'slurm-plugin', 'flux', and 'serial')
@@ -12554,6 +12562,7 @@ SPINDLE_SOURCE_ROOT=`realpath ${srcdir}/../..`
 DEFAULT_PORT=21940
 DEFAULT_LOC='$TMPDIR'
 DEFAULT_NUM_COBO_PORTS=250
+DEFAULT_CONNECT_TIMELIMIT=60
 DEFAULT_LOCAL_PREFIX='/var/:/tmp/:/proc/:/dev/:/sys/'
 
 
@@ -12640,6 +12649,45 @@ if test "${with_default_local_prefix+set}" = set; then :
 else
   SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX:$COMMPATHS"
 fi
+
+
+# Check whether --with-default-connect-timelimit was given.
+if test "${with_default_connect_timelimit+set}" = set; then :
+  withval=$with_default_connect_timelimit; COBO_CONNECT_TIMELIMIT=${withval}
+else
+  COBO_CONNECT_TIMELIMIT=$DEFAULT_CONNECT_TIMELIMIT
+fi
+
+
+# Check whether --with-default-ready-timelimit was given.
+if test "${with_default_ready_timelimit+set}" = set; then :
+  withval=$with_default_ready_timelimit; SPINDLE_READY_TIMELIMIT=${withval}
+else
+  SPINDLE_READY_TIMELIMIT=
+fi
+
+case $COBO_CONNECT_TIMELIMIT in #(
+  ''|*[!0-9]*|0*) :
+    as_fn_error $? "--with-default-connect-timelimit must be a positive integer number of seconds" "$LINENO" 5 ;; #(
+  *) :
+     ;;
+esac
+case $SPINDLE_READY_TIMELIMIT in #(
+  '') :
+     ;; #(
+  *[!0-9]*|0*) :
+    as_fn_error $? "--with-default-ready-timelimit must be a positive integer number of seconds" "$LINENO" 5 ;; #(
+  *) :
+
+cat >>confdefs.h <<_ACEOF
+#define SPINDLE_READY_TIMELIMIT $SPINDLE_READY_TIMELIMIT
+_ACEOF
+ ;;
+esac
+
+cat >>confdefs.h <<_ACEOF
+#define COBO_CONNECT_TIMELIMIT $COBO_CONNECT_TIMELIMIT
+_ACEOF
 
 
 cat >>confdefs.h <<_ACEOF

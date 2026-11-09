@@ -177,7 +177,7 @@ int cobo_get_child_socket(int num, int *fd);
 
 void cobo_set_handshake(handshake_protocol_t *hs);
 
-/* Startup time limit in milliseconds (COBO_CONNECT_TIMELIMIT, default 60s) */
+/* Startup time limit in milliseconds (COBO_CONNECT_TIMELIMIT, default set by configure) */
 int cobo_get_startup_timeout_ms(void);
 
 /* Monotonic clock in milliseconds */

@@ -28,6 +28,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <stdlib.h>
 #include <time.h>
 
+#include "config.h"
 #include "client_heap.h"
 #include "ldcs_api_pipe.h"
 #include "ldcs_api.h"
@@ -215,13 +216,17 @@ static long long env_timelimit_ms(const char *name, long long default_ms)
 /* Timeout used for connecting to a server after the ready file has appeared */
 static long long connect_timeout_ms(void)
 {
-   return env_timelimit_ms("COBO_CONNECT_TIMELIMIT", 60 * 1000);
+   return env_timelimit_ms("COBO_CONNECT_TIMELIMIT", COBO_CONNECT_TIMELIMIT * 1000LL);
 }
 
 /* Timeout used when waiting for the server's ready file to appear */
 static long long ready_timeout_ms(void)
 {
+#ifdef SPINDLE_READY_TIMELIMIT
+   return env_timelimit_ms("SPINDLE_READY_TIMELIMIT", SPINDLE_READY_TIMELIMIT * 1000LL);
+#else
    return env_timelimit_ms("SPINDLE_READY_TIMELIMIT", 4 * connect_timeout_ms());
+#endif
 }
 
 int client_open_connection_pipe(char* location, number_t number)
