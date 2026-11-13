@@ -1,0 +1,94 @@
+ARG UBUNTU_VERSION=noble
+FROM ubuntu:${UBUNTU_VERSION}
+USER root
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+
+# LC-specific fix for podman setgroups issue
+ARG PODMAN_BUILD=false
+RUN if [ "$PODMAN_BUILD" = "true" ]; then \
+      echo 'APT::Sandbox::User root;' > /etc/apt/apt.conf.d/00-apt-sandbox; \
+    fi
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND="noninteractive" apt-get -qq install -y --no-install-recommends \
+        apt-utils
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND="noninteractive" apt-get -qq install -y --no-install-recommends \
+        locales \
+        ca-certificates \
+        wget \
+        git \
+        ssh \
+        sudo \
+        psmisc \
+        build-essential \
+        pkg-config \
+        autotools-dev \
+        libtool \
+        autoconf \
+        automake \
+        make \
+        gfortran-13 \
+        gcc-13 \
+        g++-13 \
+        gdb \
+        munge \
+        libmunge-dev \
+        libhwloc-dev \
+        python3-dev \
+        python3-pip \
+        python3-setuptools \
+        python3-wheel \
+        python-is-python3 \
+        openssh-server \
+        openssh-client \
+        mariadb-client \
+        libmariadb-dev \
+        libhttp-parser-dev \
+        libjson-c-dev \
+        iproute2 \
+        iputils-ping \
+        dnsutils \
+        net-tools
+
+
+# Prevent hwloc from trying to use graphics cards
+# as this fails when X is not running.
+ENV HWLOC_COMPONENTS=-gl
+
+# Suppress UCX warnings about /proc/sys tuning parameters
+ENV UCX_LOG_LEVEL=error
+
+# Set up munge
+RUN mkdir -p /run/munge && \
+    chown munge:munge /run/munge && \
+    chmod 0755 /run/munge
+
+ARG BUILD_ROOT=.
+COPY ${BUILD_ROOT}/scripts/add_docker_user.sh /add_docker_user.sh
+
+# Slurm daemons run as $SLURM_USER
+ARG SLURM_USER=slurm
+ARG USER=${SLURM_USER}
+ARG UID=1002
+RUN /add_docker_user.sh
+
+# Applications run as $USER
+ARG USER=slurmuser
+ARG UID=1001
+RUN /add_docker_user.sh
+
+ARG SLURM_VERSION=slurm-25-05-3-1
+COPY ${BUILD_ROOT}/scripts/build_slurm.sh /build_slurm.sh
+RUN chmod +x /build_slurm.sh && /build_slurm.sh
+
+ARG MPICH_VERSION=4.2.2
+COPY ${BUILD_ROOT}/scripts/build_mpich.sh.podman /build_mpich.sh
+RUN chmod +x /build_mpich.sh && /build_mpich.sh
+
+COPY ${BUILD_ROOT}/conf/mpich.conf /etc/ld.so.conf.d/mpich.conf
+RUN ldconfig
+
+ENV SLURM_MPI_TYPE pmi2

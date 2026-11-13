@@ -62,21 +62,30 @@ podman-port/
             .dockerignore
             spindle-podman                                                      primary interface, bash script.
 
-podman-port/scripts/podman/
-                           common.sh                                            has the LC cert mounts and the podman_build helper.
+           scripts/podman/
                            build-spindle-serial.sh                              build script for serial
+                           build-spindle-slurm-base.sh                          build script for slurm base (should only need to be run once)
+                           common.sh                                            has the LC cert mounts and the podman_build helper.
                            test-spindle-serial.sh
 
-podman-port/containers/spindle-serial-ubuntu/
-                                             Dockerfile.podman
+           containers/spindle-serial-ubuntu/
+                                            Dockerfile.podman
 
-podman-port/containers/spindle-serial-ubuntu/scripts/
-                                                     entrypoint.sh.podman
+                                            scripts/
+                                                    entrypoint.sh.podman
+
+                      /spindle-slurm-ubuntu/base/
+                                                 Dockerfile.podman
+                                                 scripts/
+                                                         build_mpich.sh.podman
 
 
 # State
     ✓ `spindle-podman status`
     ✓ `spindle-podman help`
+    ✓ `spindle-podman build serial`
+    ✓ `spindle-podman test serial`
+    ✓ `spindle-podman build slurm-base`
 
 # Diary
 
@@ -97,21 +106,23 @@ Works:  ./spindle-podman build serial
 Bumped baseline build time to 450s.
 
 # Current Commit
-[podman-port] Reconstructs spindle-podman test serial
+[podman-port] Reconstructing slurm-base
 
-Added 
-    test-spindle-serial.sh
-
-Works:
-    ALL TESTS PASSED
-
+Working:  spindle-podman build slurm-base
     ==========================================
-    ✓ All tests passed!
+    Build complete!
     ==========================================
 
+    Image: spindle-slurm-base
 
-    Cleaning up container...
-    spindlenode
-    ✓ Cleanup complete
+    Next step: Build the testing image
+      ./scripts/podman/build-spindle-slurm-srun.sh
 
-    ✓ All tests passed in 68s
+
+    ✓ Build completed in 580s
+    ⚠  Build time (580s) exceeded baseline (450s)
+
+Added
+build-spindle-slurm-base.sh
+Dockerfile.podman
+build_mpich.sh.podman
