@@ -65,6 +65,7 @@ podman-port/
 podman-port/scripts/podman/
                            common.sh                                            has the LC cert mounts and the podman_build helper.
                            build-spindle-serial.sh                              build script for serial
+                           test-spindle-serial.sh
 
 podman-port/containers/spindle-serial-ubuntu/
                                              Dockerfile.podman
@@ -90,14 +91,27 @@ previous branch has been renamed `podman-port-old`.  The new branch
 gets the `podman-port` name.
 
 Works:  ./spindle-podman build serial
+        ./spindle-podman test serial
+
 
 Bumped baseline build time to 450s.
 
 # Current Commit
-[podman-port] Bump baseline serial build time to 450s
+[podman-port] Reconstructs spindle-podman test serial
 
-The check is here because of an earlier bug that kept adding
-build results to the same tarball; it eventually exceeded
-96 GB.  Slow build times were the first tip-off that something
-was amiss.
+Added 
+    test-spindle-serial.sh
 
+Works:
+    ALL TESTS PASSED
+
+    ==========================================
+    ✓ All tests passed!
+    ==========================================
+
+
+    Cleaning up container...
+    spindlenode
+    ✓ Cleanup complete
+
+    ✓ All tests passed in 68s
