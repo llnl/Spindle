@@ -36,3 +36,13 @@ run_driver_rm
 preload_file_list
 build
 .vscode
+
+# podman
+.podman-state.json
+.podman-metrics.log
+.podman-logs
+
+# vim swap files
+.*.swp
+
+

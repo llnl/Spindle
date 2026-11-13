@@ -1,0 +1,93 @@
+ARG ubuntu_version=noble
+FROM ubuntu:${ubuntu_version}
+USER root
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+ENV SPINDLE_TEST_CONTAINER=1
+
+# LC-specific fix for podman setgroups issue
+ARG PODMAN_BUILD=false
+RUN if [ "$PODMAN_BUILD" = "true" ]; then \
+      echo 'APT::Sandbox::User root;' > /etc/apt/apt.conf.d/00-apt-sandbox; \
+    fi
+
+RUN DEBIAN_FRONTEND="noninteractive" apt-get update \
+# install latest pkg utils:
+ && apt-get -qq install -y --no-install-recommends \
+        apt-utils
+
+RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq install -y --no-install-recommends \
+        locales \
+        ca-certificates \
+        wget \
+        git \
+        ssh \
+        sudo \
+        build-essential \
+        pkg-config \
+        autotools-dev \
+        libtool \
+        autoconf \
+        automake \
+        make \
+        gfortran-13 \
+        gcc-13 \
+        g++-13 \
+        gdb \
+        libc6-dbg \
+        munge \
+        libmunge-dev \
+        libhwloc-dev \
+        mpich \
+        libmpich-dev
+
+# Prevent hwloc from trying to use graphics cards
+# as this fails when X is not running.
+ENV HWLOC_COMPONENTS=-gl
+
+# Suppress UCX warnings about /proc/sys tuning parameters
+# These are expected in rootless podman containers
+ENV UCX_LOG_LEVEL=error
+
+# Set up munge
+RUN mkdir -p /run/munge && \
+    chown munge:munge /run/munge && \
+    chmod 0755 /run/munge
+
+ARG USER=spindleuser
+ARG UID=1001
+ARG BUILD_ROOT=./containers/spindle-serial-ubuntu
+COPY ${BUILD_ROOT}/scripts/add_docker_user.sh /add_docker_user.sh
+RUN /add_docker_user.sh
+
+USER ${USER}
+WORKDIR /home/${USER}
+RUN mkdir -p /home/${USER}/Spindle
+# Copy the Spindle repo into the container
+COPY . /home/${USER}/Spindle
+
+# Fix permissions on copied files (configure, scripts, etc.) as root
+USER root
+RUN chmod -R u+rwX /home/${USER}/Spindle && \
+    chown -R ${USER}:${USER} /home/${USER}/Spindle
+
+# Copy and prepare build script as root, then chown to user
+COPY ${BUILD_ROOT}/scripts/build_spindle.sh /home/${USER}/build_spindle.sh
+RUN chmod +rx /home/${USER}/build_spindle.sh && \
+    chown ${USER}:${USER} /home/${USER}/build_spindle.sh
+
+# Switch back to user to run the build
+USER ${USER}
+RUN bash ./build_spindle.sh
+
+# Copy entrypoint as root and set permissions
+USER root
+COPY ${BUILD_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint.sh
+RUN chmod +rx /home/${USER}/entrypoint.sh && \
+    chown ${USER}:${USER} /home/${USER}/entrypoint.sh
+
+# Final switch to user for runtime
+USER ${USER}
+ENV PATH /home/${USER}/Spindle-inst/bin:$PATH
+
+ENTRYPOINT /bin/bash ./entrypoint.sh

@@ -1,0 +1,10 @@
+#!/bin/bash
+# Podman-compatible entrypoint for Spindle serial container
+# Start munged in background and keep container alive
+
+printf "\nStarting munged\n"
+
+sudo -u munge /usr/sbin/munged
+
+# Keep container alive
+sleep inf

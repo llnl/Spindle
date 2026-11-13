@@ -1,0 +1,26 @@
+# Podman/Docker ignore file
+# Excludes files from being copied into container images during build
+
+# Exclude the saved images tarball (6+ GB)
+spindle-podman-images.tar
+
+# Exclude build artifacts
+workspace-Spindle/build/
+workspace-Spindle/install/
+*.o
+*.a
+*.so
+
+# Exclude git metadata
+.git/
+.gitignore
+
+# Exclude test output
+out.*
+*.log
+
+# Exclude investigation directory
+podman-concurrency-investigation/
+
+# Exclude debugging artifacts
+debugging/
