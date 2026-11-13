@@ -1,4 +1,4 @@
-SUBDIRS = src/client src/server src/fe doc
+SUBDIRS = src/client src/server src/fe src/config_helper doc
 if BLD_SLURMPLUGIN
 SUBDIRS += src/slurm_plugin
 endif

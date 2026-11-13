@@ -166,8 +166,8 @@ am__define_uniq_tagged_files = \
 ETAGS = etags
 CTAGS = ctags
 CSCOPE = cscope
-DIST_SUBDIRS = src/client src/server src/fe doc src/slurm_plugin \
-	src/flux testsuite
+DIST_SUBDIRS = src/client src/server src/fe src/config_helper doc \
+	src/slurm_plugin src/flux testsuite
 am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(top_srcdir)/scripts/ar-lib $(top_srcdir)/scripts/compile \
 	$(top_srcdir)/scripts/config.guess \
@@ -380,8 +380,8 @@ target_vendor = @target_vendor@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-SUBDIRS = src/client src/server src/fe doc $(am__append_1) \
-	$(am__append_2) $(am__append_3)
+SUBDIRS = src/client src/server src/fe src/config_helper doc \
+	$(am__append_1) $(am__append_2) $(am__append_3)
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 

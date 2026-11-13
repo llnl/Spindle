@@ -13,6 +13,7 @@ of the following to configure:
 3) Specify a start-up mechanism that works on your cluster
 4) Specify a back-end local storage location
 5) Optionally specify any misc tuning options
+6) Per-user configuration
 
 You can run 'configure --help' to see all of Spindle's configuration
 options, though most of these can be left as defaults.  Here's some
@@ -201,4 +202,31 @@ about:
     ports that Spindle will use for communicating between its daemons.
     It's usually okay to leave these at their default values (port
     range 21940-21964), unless there happens to be a conflict.
+
+6) Runtime configuration
+
+Spindle's behavior can be modified at runtime in several ways, listed
+  in order of increasing precedence:
+
+  a) /etc/spindle.conf or $PREFIX/etc/spindle.conf
+  b) $HOME/.spindle/spindle.conf
+  c) Command line
+
+For a complete list of command-line options, run ./spindle --usage.
+
+For a complete list of options than can be added to the spindle.conf
+  file, run ./spindle-config-helper --config-help.
+
+To generate a working spindle.conf file:
+    *) Set the TMPDIR and PYTHONHOME environment variables to
+        reasonable values.  TMPDIR should be on a locally-mounted
+        filesystem.
+    *) Run ./spindle-config-helper under your resource manager
+        of choice using at least two compute nodes.
+        For example:
+          flux run -n 2 -N 2 ./spindle-config-helper
+    *) Inspect the output to see if it's reasonable.  If it is,
+          copy the output to the spindle.conf file.
+    *) For more information, run ./spindle-config-helper -h
+        or consult the man page.
 
