@@ -28,9 +28,50 @@ else
 fi
 
 # Source common podman utilities
-if [[ -f "$REPO_ROOT/scripts/podman/common.sh" ]]; then
-    source "$REPO_ROOT/scripts/podman/common.sh"
-fi
+# shellcheck source=scripts/podman/common.sh
+source "$REPO_ROOT/scripts/podman/common.sh"
+# shellcheck source=scripts/podman/targets.sh
+source "$REPO_ROOT/scripts/podman/targets.sh"
+
+#==============================================================================
+# Target Registry Helpers (data lives in scripts/podman/targets.sh)
+#==============================================================================
+
+is_target() {
+    local t
+    for t in "${TARGETS[@]}"; do
+        [[ "$t" == "$1" ]] && return 0
+    done
+    return 1
+}
+
+target_list() {
+    local IFS='|'
+    echo "${TARGETS[*]}"
+}
+
+testable_list() {
+    local IFS='|' t out=()
+    for t in "${TARGETS[@]}"; do
+        [[ -n "${T_TEST[$t]:-}" ]] && out+=("$t")
+    done
+    echo "${out[*]}"
+}
+
+image_exists() {
+    podman images --format "{{.Repository}}" 2>/dev/null | grep -q "^localhost/$1\$"
+}
+
+# Fills BUILD_CMD with the podman build command for target $1.
+build_command() {
+    local t="$1"
+    local context="$REPO_ROOT/${T_CONTEXT[$t]:-}"
+    context="${context%/}"
+    # T_BUILD_ARGS and LC_CERT_BUILD_MOUNT are intentionally word-split.
+    # shellcheck disable=SC2206
+    BUILD_CMD=(podman build --build-arg "PODMAN_BUILD=true" $LC_CERT_BUILD_MOUNT ${T_BUILD_ARGS[$t]:-}
+               -t "${T_IMAGE[$t]}" -f "$REPO_ROOT/${T_DOCKERFILE[$t]}" "$context")
+}
 
 #==============================================================================
 # State Management
@@ -117,15 +158,10 @@ cmd_status() {
     echo -e "\n${BOLD}Images:${RESET}"
     local has_images=false
 
-    for target in serial slurm slurm-base; do
-        local image_name
-        case "$target" in
-            serial) image_name="localhost/spindle-serial-ubuntu" ;;
-            slurm) image_name="localhost/spindle-slurm-rshlaunch" ;;
-            slurm-base) image_name="localhost/spindle-slurm-base" ;;
-        esac
+    for target in "${TARGETS[@]}"; do
+        local image_name="localhost/${T_IMAGE[$target]}"
 
-        if podman images --format "{{.Repository}}" 2>/dev/null | grep -q "^${image_name}\$"; then
+        if image_exists "${T_IMAGE[$target]}"; then
             has_images=true
             local image_id size created
             image_id=$(podman images --format "{{.ID}}" "$image_name:latest" 2>/dev/null | head -1)
@@ -201,58 +237,83 @@ cmd_status() {
 # Build Command
 #==============================================================================
 
+# Runs the pre-step (if any) and the podman build for one target.
+# With dry_run=true, prints what would run instead.
+run_build() {
+    local t="$1"
+    local dry_run="${2:-false}"
+    local prestep="${T_PRESTEP[$t]:-}"
+
+    if [[ -n "$prestep" ]]; then
+        echo "+ (cd $REPO_ROOT && $prestep)"
+        if ! $dry_run; then
+            (cd "$REPO_ROOT" && eval "$prestep") || return 1
+        fi
+    fi
+
+    build_command "$t"
+    printf '+'
+    printf ' %q' "${BUILD_CMD[@]}"
+    echo
+    if ! $dry_run; then
+        "${BUILD_CMD[@]}"
+    fi
+}
+
 cmd_build() {
     local target="${1:-}"
     local background=false
+    local dry_run=false
 
     if [[ -z "$target" ]]; then
         echo "Error: build target required"
-        echo "Usage: $0 build <serial|slurm|slurm-base>"
+        echo "Usage: $0 build <$(target_list)> [--background] [--dry-run]"
+        return 1
+    fi
+    shift
+
+    if ! is_target "$target"; then
+        echo -e "${RED}Error:${RESET} Unknown target '$target'"
+        echo "Available targets: $(target_list)"
         return 1
     fi
 
-    # Map 'slurm' to 'slurm-rshlaunch' internally
-    if [[ "$target" == "slurm" ]]; then
-        target="slurm-rshlaunch"
-    fi
-
-    shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --background|-b) background=true; shift ;;
+            --dry-run|-n) dry_run=true; shift ;;
             *) echo "Unknown option: $1"; return 1 ;;
         esac
     done
 
-    init_state
+    if [[ ! -f "$REPO_ROOT/${T_DOCKERFILE[$target]}" ]]; then
+        echo -e "${RED}Error:${RESET} Dockerfile not found: $REPO_ROOT/${T_DOCKERFILE[$target]}"
+        return 1
+    fi
 
-    # Special handling: slurm-rshlaunch requires slurm-base
-    if [[ "$target" == "slurm-rshlaunch" ]]; then
-        local base_image="localhost/spindle-slurm-base"
-        if ! podman images --format "{{.Repository}}" 2>/dev/null | grep -q "^${base_image}\$"; then
-            echo -e "${YELLOW}→${RESET} slurm-base image not found, building it first..."
-            echo ""
+    $dry_run || init_state
 
-            # Build base image first (recursively call this function)
-            if ! cmd_build "slurm-base"; then
-                echo -e "${RED}✗${RESET} Failed to build slurm-base image"
+    local prereq="${T_PREREQ[$target]:-}"
+    if [[ -n "$prereq" ]]; then
+        if $dry_run; then
+            echo "# prerequisite '$prereq' (built only if its image is missing):"
+            cmd_build "$prereq" --dry-run || return 1
+        elif image_exists "${T_IMAGE[$prereq]}"; then
+            echo -e "${GREEN}✓${RESET} $prereq image already exists\n"
+        else
+            echo -e "${YELLOW}→${RESET} $prereq image not found, building it first...\n"
+            if ! cmd_build "$prereq"; then
+                echo -e "${RED}✗${RESET} Failed to build $prereq image"
                 return 1
             fi
-            echo ""
-            echo -e "${GREEN}✓${RESET} slurm-base built successfully"
-            echo ""
-        else
-            echo -e "${GREEN}✓${RESET} slurm-base image already exists"
             echo ""
         fi
     fi
 
-    local build_script="$REPO_ROOT/scripts/podman/build-spindle-${target}.sh"
-
-    if [[ ! -f "$build_script" ]]; then
-        echo -e "${RED}Error:${RESET} No build script found for target '$target'"
-        echo "Available targets: serial, slurm, slurm-base"
-        return 1
+    if $dry_run; then
+        echo "# build $target:"
+        run_build "$target" true
+        return 0
     fi
 
     echo -e "${BOLD}Building $target...${RESET}\n"
@@ -268,52 +329,40 @@ cmd_build() {
         echo "Starting background build..."
         echo "Log: $log_file"
 
-        bash "$build_script" > "$log_file" 2>&1 &
+        run_build "$target" > "$log_file" 2>&1 &
         local pid=$!
 
         echo "Background job PID: $pid"
         echo -e "${BLUE}→${RESET} Use '$0 status' to check progress"
 
-        # Update state with background job info
         update_state "background_jobs.build-${target}" \
             "{\"pid\": $pid, \"started\": \"$(date -Iseconds)\", \"log\": \"$log_file\"}"
 
         return 0
-    else
-        # Run in foreground with live output
-        if bash "$build_script" 2>&1 | tee "$log_file"; then
-            local end_time duration
-            end_time=$(date +%s)
-            duration=$((end_time - start_time))
-
-            echo -e "\n${GREEN}✓${RESET} Build completed in ${duration}s"
-
-            # Log metric
-            log_metric "build" "$target" "${duration}s" "success"
-
-            # Update state
-            update_state "images.$target" \
-                "{\"built\": \"$(date -Iseconds)\", \"build_time_sec\": $duration}"
-
-            # Check if build exceeded baseline (more lenient for compute nodes)
-            local baseline=450  # 13Nov2026 rzadams observed 300s.
-            if [[ $duration -gt $baseline ]]; then
-                echo -e "${YELLOW}⚠${RESET}  Build time (${duration}s) exceeded baseline (${baseline}s)"
-            fi
-
-            return 0
-        else
-            local end_time duration
-            end_time=$(date +%s)
-            duration=$((end_time - start_time))
-
-            echo -e "\n${RED}✗${RESET} Build failed after ${duration}s"
-            echo "Log: $log_file"
-
-            log_metric "build" "$target" "${duration}s" "failed"
-            return 1
-        fi
     fi
+
+    local rc=0
+    run_build "$target" 2>&1 | tee "$log_file" || rc=$?
+
+    local duration=$(( $(date +%s) - start_time ))
+
+    if [[ $rc -ne 0 ]]; then
+        echo -e "\n${RED}✗${RESET} Build failed after ${duration}s"
+        echo "Log: $log_file"
+        log_metric "build" "$target" "${duration}s" "failed"
+        return 1
+    fi
+
+    echo -e "\n${GREEN}✓${RESET} Build completed in ${duration}s"
+    log_metric "build" "$target" "${duration}s" "success"
+    update_state "images.$target" \
+        "{\"built\": \"$(date -Iseconds)\", \"build_time_sec\": $duration}"
+
+    local baseline="${T_BASELINE[$target]:-}"
+    if [[ -n "$baseline" && $duration -gt $baseline ]]; then
+        echo -e "${YELLOW}⚠${RESET}  Build time (${duration}s) exceeded baseline (${baseline}s)"
+    fi
+    return 0
 }
 
 #==============================================================================
@@ -327,16 +376,17 @@ cmd_test() {
 
     if [[ -z "$target" ]]; then
         echo "Error: test target required"
-        echo "Usage: $0 test <serial|slurm> [--repeat N] [--background]"
+        echo "Usage: $0 test <$(testable_list)> [--repeat N] [--background]"
+        return 1
+    fi
+    shift
+
+    if ! is_target "$target" || [[ -z "${T_TEST[$target]:-}" ]]; then
+        echo -e "${RED}Error:${RESET} No tests for target '$target'"
+        echo "Testable targets: $(testable_list)"
         return 1
     fi
 
-    # Map 'slurm' to 'slurm-rshlaunch' internally
-    if [[ "$target" == "slurm" ]]; then
-        target="slurm-rshlaunch"
-    fi
-
-    shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --repeat|-r) repeat="$2"; shift 2 ;;
@@ -347,23 +397,15 @@ cmd_test() {
 
     init_state
 
-    local test_script="$REPO_ROOT/scripts/podman/test-spindle-${target}.sh"
+    local test_script="$REPO_ROOT/${T_TEST[$target]}"
 
     if [[ ! -f "$test_script" ]]; then
-        echo -e "${RED}Error:${RESET} No test script found for target '$target'"
-        echo "Available targets: serial, slurm"
+        echo -e "${RED}Error:${RESET} Test script not found: $test_script"
         return 1
     fi
 
-    # Check if image exists
-    local image_name
-    case "$target" in
-        serial) image_name="localhost/spindle-serial-ubuntu" ;;
-        slurm-rshlaunch) image_name="localhost/spindle-slurm-rshlaunch" ;;
-    esac
-
-    if ! podman images --format "{{.Repository}}" 2>/dev/null | grep -q "^${image_name}\$"; then
-        echo -e "${RED}Error:${RESET} Image '$image_name' not found"
+    if ! image_exists "${T_IMAGE[$target]}"; then
+        echo -e "${RED}Error:${RESET} Image 'localhost/${T_IMAGE[$target]}' not found"
         echo "Build it first with: $0 build $target"
         return 1
     fi
@@ -422,7 +464,7 @@ cmd_test() {
             # Parse test output for counts (looking for "ALL TESTS PASSED")
             local passed failed
             if grep -q "ALL TESTS PASSED" "$log_file"; then
-                passed=$(grep -c "^Running:" "$log_file" || echo "0")
+                passed=$(grep -c "^Running:" "$log_file" || true)
                 failed=0
             else
                 passed=0
@@ -485,7 +527,7 @@ cmd_cleanup() {
 
     # Clean up slurm test networks
     echo "Cleaning up networks..."
-    for network in slurm-rshlaunch-test-net slurm-srun-test-net; do
+    for network in "${KNOWN_NETWORKS[@]}"; do
         if podman network exists "$network" 2>/dev/null; then
             echo "  Removing network: $network"
             podman network rm "$network" 2>/dev/null || true
@@ -495,22 +537,6 @@ cmd_cleanup() {
     # Clean up dangling resources
     echo "Cleaning dangling resources..."
     podman container prune -f 2>/dev/null || true
-
-    # Clean up /tmp directories
-    echo "Cleaning /tmp/spindle* directories..."
-    local tmp_dirs
-    tmp_dirs=$(find /tmp -maxdepth 1 -name "spindle*" -type d 2>/dev/null || true)
-    if [[ -n "$tmp_dirs" ]]; then
-        echo "$tmp_dirs" | while read -r dir; do
-            if $force; then
-                echo "  Force removing: $dir"
-                rm -rf "$dir" 2>/dev/null || true
-            else
-                echo "  Removing: $dir"
-                rm -rf "$dir" 2>/dev/null || true
-            fi
-        done
-    fi
 
     echo -e "\n${GREEN}✓${RESET} Cleanup complete"
 }
@@ -525,7 +551,7 @@ cmd_defenestrate() {
     done
 
     # Remove specific slurm test networks
-    for network in slurm-rshlaunch-test-net slurm-srun-test-net; do
+    for network in "${KNOWN_NETWORKS[@]}"; do
         if podman network exists "$network" 2>/dev/null; then
             echo "Removing network: $network"
             podman network rm -f "$network" 2>/dev/null || true
@@ -535,10 +561,6 @@ cmd_defenestrate() {
     # Prune everything
     podman container prune -f 2>/dev/null || true
     podman network prune -f 2>/dev/null || true
-
-    # Nuke /tmp directories
-    echo "Nuking /tmp/spindle* directories..."
-    find /tmp -maxdepth 1 -name "spindle*" -type d -exec rm -rf {} \; 2>/dev/null || true
 
     echo -e "\n${GREEN}✓${RESET} All resources destroyed"
 }
@@ -562,24 +584,17 @@ cmd_logs() {
         session=$(basename "$dir")
         echo -e "${BOLD}$session${RESET}"
 
-        # Check for errors
-        local has_errors=false
-        find "$dir" -name "*.log" -type f | while read -r log; do
-            if grep -qi "error\|failed" "$log" 2>/dev/null; then
-                has_errors=true
-            fi
-
-            local log_name
+        while read -r log; do
+            local log_name size
             log_name=$(basename "$log")
-            local size
             size=$(du -h "$log" | cut -f1)
 
-            if $has_errors; then
+            if grep -qi "error\|failed" "$log" 2>/dev/null; then
                 echo -e "  ${RED}✗${RESET} $log_name ($size) - contains errors"
             else
                 echo -e "  ${GREEN}✓${RESET} $log_name ($size)"
             fi
-        done
+        done < <(find "$dir" -name "*.log" -type f | sort)
         echo ""
     done
 
@@ -599,28 +614,35 @@ Usage:
 
 Commands:
   status [--verbose]              Show current state of images, containers, tests
-  build <target> [--background]   Build a container image
+  build <target> [options]        Build a container image
   test <target> [options]         Run tests in a container
   cleanup [--force]               Clean up containers (gentle by default)
   defenestrate                    Nuclear cleanup (kill -9 everything)
   logs [N]                        Show recent log sessions (default: 5)
   help                            Show this help
 
-Build/Test Targets:
-  serial                          Serial resource manager (MPI via mpirun)
-  slurm                           Slurm with rshlaunch
-  slurm-base                      Slurm base image (slow build, rarely needed)
+Build Options:
+  --background, -b                Run in background
+  --dry-run, -n                   Print the commands without running them
 
 Test Options:
   --repeat N, -r N                Run tests N times
   --background, -b                Run in background
 
+Targets:
+EOF
+    local t suffix
+    for t in "${TARGETS[@]}"; do
+        suffix=""
+        [[ -n "${T_TEST[$t]:-}" ]] || suffix=" (build only)"
+        printf '  %-30s  %s%s\n' "$t" "${T_DESC[$t]}" "$suffix"
+    done
+    cat <<'EOF'
+
 Examples:
   ./spindle-podman status
   ./spindle-podman build serial
-  ./spindle-podman test serial
-  ./spindle-podman build slurm           # Builds base + testing images
-  ./spindle-podman test slurm
+  ./spindle-podman build serial --dry-run
   ./spindle-podman test serial --repeat 10
   ./spindle-podman cleanup
   ./spindle-podman logs 3
@@ -630,6 +652,7 @@ State and logs:
   Metrics: .podman-metrics.log
   Logs:    .podman-logs/
 
+Targets are defined in scripts/podman/targets.sh.
 EOF
 }
 

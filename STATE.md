@@ -66,6 +66,7 @@ podman-port/
                            build-spindle-serial.sh                              build script for serial
                            build-spindle-slurm-base.sh                          build script for slurm base (should only need to be run once)
                            common.sh                                            has the LC cert mounts and the podman_build helper.
+                           targets.sh                                           describes the build targets, expected build time, etc.
                            test-spindle-serial.sh
 
            containers/spindle-serial-ubuntu/
@@ -106,23 +107,23 @@ Works:  ./spindle-podman build serial
 Bumped baseline build time to 450s.
 
 # Current Commit
-[podman-port] Reconstructing slurm-base
+[podman-port] Adds build registry.
 
-Working:  spindle-podman build slurm-base
-    ==========================================
-    Build complete!
-    ==========================================
+Adds registry (targets.sh) describing each build target, expected
+completion time, etc.  Allows for code duplication removal.
 
-    Image: spindle-slurm-base
+Adds `--dry-run` to `spindle-podman build x` to allow verification
+that nothing in the build process has changed without needed a 
+full build.
 
-    Next step: Build the testing image
-      ./scripts/podman/build-spindle-slurm-srun.sh
+Bugfixes:
+
+1. logs no longer flags every later log in a session once one has errors
+2. The grep -c ... || echo 0 pattern is fixed, so it can't write 0\n0 into the state JSON. 
+3. cleanup and defenestrate no longer delete `/tmp/spindle*` on the host.
 
 
-    ✓ Build completed in 580s
-    ⚠  Build time (580s) exceeded baseline (450s)
 
-Added
-build-spindle-slurm-base.sh
-Dockerfile.podman
-build_mpich.sh.podman
+Adds:
+
+targets.sh
