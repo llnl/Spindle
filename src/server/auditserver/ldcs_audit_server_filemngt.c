@@ -164,15 +164,20 @@ char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
       case clt_lstat: prefix = "spindlens-lstat"; break;
       case clt_ldso: prefix = "spindlens-ldso"; break;
       case clt_file: prefix = "spindlens-file"; break;
-      case clt_dso: prefix = "spindlens-dso"; break;
+      case clt_dso: prefix = ""; break;
       case clt_numafile: prefix = "spindlens-numafile-XXXXXX"; break;
       case clt_numadso: prefix = "spindlens-numadso-XXXXXX"; break;
    }
    
-   snprintf(target, sizeof(target), "%x-%s-%s",
-            unique_str_num++,
-            prefix,
-            filepart);
+   if( reqtype == clt_dso ){
+       snprintf(target, sizeof(target), "%s",
+                filepart);
+   }else{
+       snprintf(target, sizeof(target), "%x-%s-%s",
+                unique_str_num++,
+                prefix,
+                filepart);
+   }
    strncpy(filepart, target, sizeof(filepart));
    filepart[sizeof(filepart)-1] = '\0';
 
