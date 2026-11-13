@@ -598,6 +598,22 @@ static int sp_init (flux_plugin_t *p,
     else
        unsetenv("SPINDLE_NO_CRASH_DEDUP");
 
+    /*  Pass through the startup time limit and testsuite fault injection */
+    {
+       static const char *passthrough[] = {
+          "COBO_CONNECT_TIMELIMIT", "SPINDLE_TEST_BE_EXIT", "SPINDLE_TEST_BE_EXIT_HOSTS",
+          "SPINDLE_TEST_BE_STALL", "SPINDLE_TEST_BE_STALL_SECS", "SPINDLE_TEST_BE_FAULT_PHASE", NULL
+       };
+       const char *val;
+       int j;
+       for (j = 0; passthrough[j]; j++) {
+          if ((val = flux_shell_getenv(shell, passthrough[j])))
+             setenv(passthrough[j], val, 1);
+          else
+             unsetenv(passthrough[j]);
+       }
+    }
+
     debug_printf(1, "initializing spindle flux plugin\n");
 
     /*  Spindle requires that TMPDIR is set. Propagate TMPDIR from job

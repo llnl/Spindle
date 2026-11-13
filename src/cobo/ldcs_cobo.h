@@ -64,6 +64,10 @@ extern "C" {
 #define cobo_bcast_down COMBINE(COBO_NAMESPACE, cobo_bcast_down)
 #define cobo_get_child_socket COMBINE(COBO_NAMESPACE, cobo_get_child_socket)
 #define cobo_set_handshake COMBINE(COBO_NAMESPACE, cobo_set_handshake)
+#define cobo_get_startup_timeout_ms COMBINE(COBO_NAMESPACE, cobo_get_startup_timeout_ms)
+#define cobo_now_ms COMBINE(COBO_NAMESPACE, cobo_now_ms)
+#define cobo_read_fd_w_timeout COMBINE(COBO_NAMESPACE, cobo_read_fd_w_timeout)
+#define cobo_write_fd_w_suppress COMBINE(COBO_NAMESPACE, cobo_write_fd_w_suppress)
 #define cobo_preconnect_cb_t COMBINE(COBO_NAMESPACE, cobo_preconnect_cb_t)
 #define cobo_register_preconnect_cb COMBINE(COBO_NAMESPACE, cobo_register_preconnect_cb)
 #endif
@@ -172,6 +176,18 @@ int cobo_get_num_childs(int* num_childs);
 int cobo_get_child_socket(int num, int *fd);
 
 void cobo_set_handshake(handshake_protocol_t *hs);
+
+/* Startup time limit in milliseconds (COBO_CONNECT_TIMELIMIT, default set by configure) */
+int cobo_get_startup_timeout_ms(void);
+
+/* Monotonic clock in milliseconds */
+long long cobo_now_ms(void);
+
+/* Read size bytes from fd within timeout_ms overall, no limit if negative */
+int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms);
+
+/* Write size bytes to fd; with suppress, errors are written as debug logs instead */
+int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress);
 
 void handle_security_error(const char *msg);
 int initialize_handshake_security(handshake_protocol_t *protocol);

@@ -164,10 +164,17 @@ int ldcs_open_server_connections_pipe(int fd, int nc, int *more_avail) {
           break;
        }
     }
+    if (!ldcs_notify_more_avail(fdlist_pipe[fd].notify_fd)) {
+       *more_avail = 0;
+       return -1;
+    }
   }
 
   connfd=get_new_fd_pipe();
-  if(connfd<0) return(-1);
+  if(connfd<0) {
+    *more_avail=ldcs_notify_more_avail(fdlist_pipe[fd].notify_fd);
+    return(-1);
+  }
   fdlist_pipe[connfd].serverfd=fd;
   fdlist_pipe[connfd].type=LDCS_PIPE_FD_TYPE_CONN;
 
@@ -178,12 +185,32 @@ int ldcs_open_server_connections_pipe(int fd, int nc, int *more_avail) {
   fdlist_pipe[connfd].in_fn = strdup(fifo);
 
   debug_printf3("before open fifo '%s'\n",fdlist_pipe[connfd].out_fn);
-  if (-1 == (fifoid = open(fdlist_pipe[connfd].out_fn, O_WRONLY))) _error("open fifo failed");
+  /* the client opens its read end before creating <pid>-1.
+   * If we get ENXIO that means it has died.*/
+  fifoid = open(fdlist_pipe[connfd].out_fn, O_WRONLY | O_NONBLOCK);
+  if (fifoid == -1) {
+     debug_printf("Dropping connection from pid %d: %s\n", pid, strerror(errno));
+     unlink(fdlist_pipe[connfd].out_fn);
+     unlink(fdlist_pipe[connfd].in_fn);
+     free_fd_pipe(connfd);
+     *more_avail = ldcs_notify_more_avail(fdlist_pipe[fd].notify_fd);
+     return -1;
+  }
+  fcntl(fifoid, F_SETFL, fcntl(fifoid, F_GETFL) & ~O_NONBLOCK);
   debug_printf3("after open fifo (out): -> fifoid=%d\n",fifoid);
   fdlist_pipe[connfd].out_fd=fifoid;
 
   debug_printf3("before open fifo '%s'\n",fdlist_pipe[connfd].in_fn);
-  if (-1 == (fifoid = open(fdlist_pipe[connfd].in_fn, O_RDONLY|O_NONBLOCK)))  _error("open fifo failed");
+  fifoid = open(fdlist_pipe[connfd].in_fn, O_RDONLY | O_NONBLOCK);
+  if (fifoid == -1) {
+     debug_printf("Dropping connection from pid %d: %s\n", pid, strerror(errno));
+     close(fdlist_pipe[connfd].out_fd);
+     unlink(fdlist_pipe[connfd].out_fn);
+     unlink(fdlist_pipe[connfd].in_fn);
+     free_fd_pipe(connfd);
+     *more_avail = ldcs_notify_more_avail(fdlist_pipe[fd].notify_fd);
+     return -1;
+  }
   /* if (-1 == (fifoid = open(fdlist_pipe[connfd].in_fn, O_RDONLY)))  _error("open fifo failed"); */
   debug_printf3("after open fifo (in) : -> fifoid=%d\n",fifoid);
   fdlist_pipe[connfd].in_fd=fifoid;

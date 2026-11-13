@@ -121,7 +121,7 @@ int spindleRunBE(unsigned int port, unsigned int num_ports, unique_id_t unique_i
                  int (*post_setup)(spindle_args_t *))
 {
    int result;
-   spindle_args_t args;
+   spindle_args_t args = {0};
 
    LOGGING_INIT(const_cast<char *>("Server"));
 
@@ -137,8 +137,7 @@ int spindleRunBE(unsigned int port, unsigned int num_ports, unique_id_t unique_i
    result = ldcs_audit_server_network_setup(port, num_ports, unique_id, &setup_data, &setup_data_size);
    if (result == -1) {
       err_printf("Error setting up network in spindleRunBE\n");
-      if (args.startup_type == startup_external)
-        LOGGING_FINI;
+      LOGGING_FINI;
       return -1;
    }
    unpack_data(&args, setup_data, setup_data_size);

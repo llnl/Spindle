@@ -9,6 +9,9 @@
 /* Colon-separated list of potential back-end cache directories */
 #undef CACHEPATHS
 
+/* Default startup and connection time limit in seconds */
+#undef COBO_CONNECT_TIMELIMIT
+
 /* Colon-separated list of candidate paths for back-end communication and
    housekeeping */
 #undef COMMPATHS
@@ -156,6 +159,10 @@
 
 /* The default port for Spindle */
 #undef SPINDLE_PORT
+
+/* Default time limit in seconds for clients to wait for the server ready file
+   */
+#undef SPINDLE_READY_TIMELIMIT
 
 /* Defined if GLIBC has static TLS allocation bug */
 #undef STATIC_TLS_ALLOC_BUG

@@ -376,6 +376,21 @@ static int forward_environment_to_slurmstepd(spank_t spank)
       free(envVal);
    }
 
+   {
+      static const char *passthrough[] = {
+         "COBO_CONNECT_TIMELIMIT", "SPINDLE_TEST_BE_EXIT", "SPINDLE_TEST_BE_EXIT_HOSTS",
+         "SPINDLE_TEST_BE_STALL", "SPINDLE_TEST_BE_STALL_SECS", "SPINDLE_TEST_BE_FAULT_PHASE", NULL
+      };
+      int i;
+      for (i = 0; passthrough[i]; i++) {
+         envVal = readSpankEnv(spank, passthrough[i]);
+         if (envVal) {
+            setenv(passthrough[i], envVal, 1);
+            free(envVal);
+         }
+      }
+   }
+
    return 0;
 }
 

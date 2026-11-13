@@ -26,7 +26,9 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <errno.h>
 #include <dirent.h>
 #include <stdlib.h>
+#include <time.h>
 
+#include "config.h"
 #include "client_heap.h"
 #include "ldcs_api_pipe.h"
 #include "ldcs_api.h"
@@ -72,6 +74,8 @@ static int write_pipe(int fd, const void *data, int bytes)
      bwrite     = left;
      bwrote     = write(fd, dataptr, bwrite);
      if (bwrote == -1) {
+        if (errno == EINTR)
+           continue;
         err_printf("Failed to wrote bytes to pipe: %s\n", strerror(errno));
         return -1;
      }
@@ -95,7 +99,13 @@ static int read_pipe(int fd, void *data, int bytes)
       btoread    = left;
       bread      = read(fd, dataptr, btoread);
       if (bread == -1) {
+         if (errno == EINTR)
+            continue;
          err_printf("Error reading data from pipe: %s\n", strerror(errno));
+         return -1;
+      }
+      if (bread == 0) {
+         err_printf("Server closed the pipe connection\n");
          return -1;
       }
       left      -= bread;
@@ -188,6 +198,37 @@ static int remap_to_high_fd(int fd)
 #endif
 }
 
+static long long now_ms(void)
+{
+   struct timespec ts;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+   return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static long long env_timelimit_ms(const char *name, long long default_ms)
+{
+   char *value = getenv(name);
+   if (value && atoi(value) > 0)
+      return 1000LL * atoi(value);
+   return default_ms;
+}
+
+/* Timeout used for connecting to a server after the ready file has appeared */
+static long long connect_timeout_ms(void)
+{
+   return env_timelimit_ms("COBO_CONNECT_TIMELIMIT", COBO_CONNECT_TIMELIMIT * 1000LL);
+}
+
+/* Timeout used when waiting for the server's ready file to appear */
+static long long ready_timeout_ms(void)
+{
+#ifdef SPINDLE_READY_TIMELIMIT
+   return env_timelimit_ms("SPINDLE_READY_TIMELIMIT", SPINDLE_READY_TIMELIMIT * 1000LL);
+#else
+   return env_timelimit_ms("SPINDLE_READY_TIMELIMIT", 4 * connect_timeout_ms());
+#endif
+}
+
 int client_open_connection_pipe(char* location, number_t number)
 {
    (void)number;
@@ -197,6 +238,7 @@ int client_open_connection_pipe(char* location, number_t number)
    char fifo[MAX_PATH_LEN];
    char ready[MAX_PATH_LEN];
    int find_r_fd = 0, find_w_fd = 0;
+   int opened_in = 0, opened_out = 0;
 
    debug_printf("Client creating pipe for connection to server\n");
    fd = get_new_fd_pipe();
@@ -205,20 +247,26 @@ int client_open_connection_pipe(char* location, number_t number)
   
    fdlist_pipe[fd].type = LDCS_PIPE_FD_TYPE_CONN;
 
-   /* wait for directory (at most one minute) */
+   long long deadline = now_ms() + ready_timeout_ms();
+
+   /* wait for the server to be ready */
    stat_cnt = 0;
    snprintf(ready, MAX_PATH_LEN, "%s/spindle_comm/ready", location);
    memset(&st, 0, sizeof(st));
-   
-   while (((stat(ready, &st) == -1) || ((st.st_mode & (S_IRUSR | S_IWUSR)) == 0)) && 
-          (stat_cnt<600)) {
+   while ((stat(ready, &st) == -1) || ((st.st_mode & (S_IRUSR | S_IWUSR)) == 0)) {
+      if (now_ms() >= deadline) {
+         err_printf("Timed out waiting for server ready file %s\n", ready);
+         return -1;
+      }
       if (stat_cnt % 10 == 0)
          debug_printf3("waiting: location %s does not exists (after %d seconds)\n", ready, stat_cnt/10);
       usleep(100000); /* .1 seconds */
       stat_cnt++;
    }
-  
-   /* create incomming fifo */
+
+   /* create incoming fifo; open the read end first */
+   fdlist_pipe[fd].in_fd = fdlist_pipe[fd].out_fd = 0;
+   fdlist_pipe[fd].out_fn = NULL;
    sprintf(fifo, "%s/spindle_comm/fifo-%d-0", location, getpid());
    result = ldcs_mkfifo(fifo);
    if (result == -2)
@@ -227,6 +275,20 @@ int client_open_connection_pipe(char* location, number_t number)
       return -1;
    fdlist_pipe[fd].in_fn = spindle_strdup(fifo);
    assert(fdlist_pipe[fd].in_fn);
+   if (find_r_fd) {
+      /* Fifo already exists.  Find an existing open fd. */
+      debug_printf3("Finding existing fd for %s\n", fdlist_pipe[fd].in_fn);
+      find_existing_fds(fdlist_pipe[fd].in_fn, NULL, &fdlist_pipe[fd].in_fd, &fdlist_pipe[fd].out_fd);
+   }
+   if (fdlist_pipe[fd].in_fd == 0) {
+      debug_printf3("Opening input fifo %s\n", fdlist_pipe[fd].in_fn);
+      fdlist_pipe[fd].in_fd = open(fdlist_pipe[fd].in_fn, O_RDONLY | O_NONBLOCK);
+      if (fdlist_pipe[fd].in_fd == -1) {
+         err_printf("Error opening input fifo %s: %s\n", fdlist_pipe[fd].in_fn, strerror(errno));
+         goto fail;
+      }
+      opened_in = 1;
+   }
 
    /* create outgoing fifo */
    sprintf(fifo, "%s/spindle_comm/fifo-%d-1", location, getpid());
@@ -234,43 +296,58 @@ int client_open_connection_pipe(char* location, number_t number)
    if (result == -2)
       find_w_fd = 1;
    else if (result == -1)
-      return -1;
+      goto fail;
    fdlist_pipe[fd].out_fn = spindle_strdup(fifo);
 
-   /* open fifos */
-   fdlist_pipe[fd].in_fd = fdlist_pipe[fd].out_fd = 0;
-   if (find_w_fd || find_r_fd) {
-      /* Fifos already exist.  Find existing open fds. */
-      debug_printf3("Finding existing fds for %s and/or %s\n", 
-                   fdlist_pipe[fd].out_fn, fdlist_pipe[fd].in_fn);
-      find_existing_fds(find_r_fd ? fdlist_pipe[fd].in_fn : NULL,
-                        find_w_fd ? fdlist_pipe[fd].out_fn : NULL,
-                        &fdlist_pipe[fd].in_fd, &fdlist_pipe[fd].out_fd);
+   if (find_w_fd) {
+      /* Fifo already exists.  Find an existing open fd. */
+      debug_printf3("Finding existing fd for %s\n", fdlist_pipe[fd].out_fn);
+      find_existing_fds(NULL, fdlist_pipe[fd].out_fn, &fdlist_pipe[fd].in_fd, &fdlist_pipe[fd].out_fd);
    }
-   if (fdlist_pipe[fd].in_fd == 0) {
-      debug_printf3("Opening input fifo %s\n", fdlist_pipe[fd].in_fn);
-      fdlist_pipe[fd].in_fd = open(fdlist_pipe[fd].in_fn, O_RDONLY);
-      fdlist_pipe[fd].in_fd = remap_to_high_fd(fdlist_pipe[fd].in_fd);
-   }
-   debug_printf3("Opened input fifo %s = %d\n", fdlist_pipe[fd].in_fn, fdlist_pipe[fd].in_fd);
    if (fdlist_pipe[fd].out_fd == 0) {
+      /* will get ENXIO until the server has opened its read end */
       debug_printf3("Opening output fifo %s\n", fdlist_pipe[fd].out_fn);
-      fdlist_pipe[fd].out_fd = open(fdlist_pipe[fd].out_fn, O_WRONLY);
+      deadline = now_ms() + connect_timeout_ms();
+      for (;;) {
+         fdlist_pipe[fd].out_fd = open(fdlist_pipe[fd].out_fn, O_WRONLY | O_NONBLOCK);
+         if (fdlist_pipe[fd].out_fd != -1 || errno != ENXIO)
+            break;
+         if (now_ms() >= deadline) {
+            err_printf("Timed out waiting for server to open %s\n", fdlist_pipe[fd].out_fn);
+            goto fail;
+         }
+         usleep(10000);
+      }
+      if (fdlist_pipe[fd].out_fd == -1) {
+         err_printf("Error opening output fifo %s: %s\n", fdlist_pipe[fd].out_fn, strerror(errno));
+         goto fail;
+      }
+      opened_out = 1;
+   }
+   /* Turn nonblocking IO on the fifos off so as to not alter behavior after startup */
+   fcntl(fdlist_pipe[fd].in_fd, F_SETFL, fcntl(fdlist_pipe[fd].in_fd, F_GETFL) & ~O_NONBLOCK);
+   fcntl(fdlist_pipe[fd].out_fd, F_SETFL, fcntl(fdlist_pipe[fd].out_fd, F_GETFL) & ~O_NONBLOCK);
+   if (opened_in)
+      fdlist_pipe[fd].in_fd = remap_to_high_fd(fdlist_pipe[fd].in_fd);
+   if (opened_out)
       fdlist_pipe[fd].out_fd = remap_to_high_fd(fdlist_pipe[fd].out_fd);
-   }
-   debug_printf3("Opened output fifo %s = %d\n", fdlist_pipe[fd].out_fn, fdlist_pipe[fd].out_fd);
+   debug_printf3("Opened fifos %s = %d, %s = %d\n", fdlist_pipe[fd].in_fn, fdlist_pipe[fd].in_fd,
+                 fdlist_pipe[fd].out_fn, fdlist_pipe[fd].out_fd);
 
-   /* Check opened fifos */
-   if (fdlist_pipe[fd].in_fd == -1) {
-      err_printf("Error opening input fifo %s: %s\n", fdlist_pipe[fd].in_fn, strerror(errno));
-      return -1;
-   }
-   if (fdlist_pipe[fd].out_fd == -1) {
-      err_printf("Error opening output fifo %s: %s\n", fdlist_pipe[fd].out_fn, strerror(errno));
-      return -1;
-   }
+   return fd;
 
-   return fd;  
+ fail:
+   /* on failure, close our fds/fifos so the server will
+      drop this connection if it tries to use them */
+   if (opened_in)
+      close(fdlist_pipe[fd].in_fd);
+   if (opened_out)
+      close(fdlist_pipe[fd].out_fd);
+   if (!find_r_fd)
+      unlink(fdlist_pipe[fd].in_fn);
+   if (!find_w_fd && fdlist_pipe[fd].out_fn)
+      unlink(fdlist_pipe[fd].out_fn);
+   return -1;
 }
 
 int client_register_connection_pipe(char *connection_str)

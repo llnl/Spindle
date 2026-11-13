@@ -30,11 +30,14 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <time.h>
 #include <arpa/inet.h>
 #include <poll.h>
 #include <assert.h>
 
+#include "config.h"
 #include "ldcs_cobo.h"
+#include "cobo_fault_inject.h"
 #include "spindle_debug.h"
 
 /* Reads environment variable, bails if not set */
@@ -129,6 +132,18 @@ static struct timeval tree_start, tree_end;
 #if defined(SIONDEBUG) 
 #include "sion_debug.h"
 #endif
+
+long long cobo_now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+int cobo_get_startup_timeout_ms(void)
+{
+    return (int) (cobo_connect_timelimit * 1000);
+}
 
 static cobo_preconnect_cb_t preconnect_cb = NULL;
 
@@ -229,11 +244,14 @@ static int* cobo_int_dup(int* src, int n)
 }
 
 /* write size bytes from buf into fd, retry if necessary */
-static int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
+int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
 {
     int rc;
     int n = 0;
     char* offset = (char*) buf;
+
+    if (fd < 0)
+        return -1;
 
     while (n < size) {
        rc = write(fd, offset, size - n);
@@ -253,7 +271,7 @@ static int cobo_write_fd_w_suppress(int fd, void* buf, int size, int suppress)
                 err_printf("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
                            fd, offset, size-n);
             } else {
-                err_printf("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
+                debug_printf3("Unexpected return code of 0 from write to file descriptor (write(fd=%d,offset=%p,size=%d))\n",
                            fd, offset, size-n);
             }
 	    return -1;
@@ -272,12 +290,18 @@ static int cobo_write_fd(int fd, void* buf, int size)
     return cobo_write_fd_w_suppress(fd, buf, size, 0);
 }
 
-/* read size bytes into buf from fd, retry if necessary */
-static int cobo_read_fd_w_timeout(int fd, void* buf, int size, int usecs)
+/* read size bytes into buf from fd, within timeout_ms, no limit if negative */
+int cobo_read_fd_w_timeout(int fd, void* buf, int size, int timeout_ms)
 {
     int rc;
     int n = 0;
     char* offset = (char*) buf;
+    long long deadline = cobo_now_ms() + timeout_ms;
+
+    if (fd < 0) {
+        err_printf("Invalid file descriptor %d for read\n", fd);
+        return -1;
+    }
 
     struct pollfd fds;
     fds.fd      = fd;
@@ -285,13 +309,20 @@ static int cobo_read_fd_w_timeout(int fd, void* buf, int size, int usecs)
     fds.revents = 0x0;
 
     while (n < size) {
-        /* poll the connection with a timeout value */
-        int poll_rc = poll(&fds, 1, usecs);
+        int wait_ms = -1;
+        if (timeout_ms >= 0) {
+            long long remaining = deadline - cobo_now_ms();
+            wait_ms = remaining > 0 ? (int) remaining : 0;
+        }
+        int poll_rc = poll(&fds, 1, wait_ms);
         if (poll_rc < 0) {
+            if (errno == EINTR)
+                continue;
             err_printf("Polling file descriptor for read (read(fd=%d,offset=%p,size=%d) %m errno=%d)\n",
                        fd, offset, size-n, errno);
             return -1;
         } else if (poll_rc == 0) {
+            debug_printf3("Timed out reading %d bytes from fd %d\n", size-n, fd);
             return -1;
         }
 
@@ -341,10 +372,10 @@ static int cobo_read_fd_w_timeout(int fd, void* buf, int size, int usecs)
     return n;
 }
 
-/* read size bytes into buf from fd, retry if necessary */
+/* read size bytes into buf from fd, within the startup time limit */
 static int cobo_read_fd(int fd, void* buf, int size)
 {
-    return cobo_read_fd_w_timeout(fd, buf, size, -1);
+    return cobo_read_fd_w_timeout(fd, buf, size, cobo_get_startup_timeout_ms());
 }
 
 /* Open a connection on socket FD to peer at ADDR (which LEN bytes long).
@@ -518,6 +549,7 @@ static int cobo_connect_hostname(char* hostname, int rank)
                    case HSHAKE_DROP_CONNECTION:
                       debug_printf3("Handshake said to drop connection\n");
                       close(s);
+                      s = -1;
                       continue;
                    case HSHAKE_ABORT:
                       handle_security_error(spindle_handshake_last_error_str());
@@ -572,6 +604,7 @@ static int cobo_connect_hostname(char* hostname, int rank)
                 /* if the connection test failed, close the socket, otherwise we've got a good connection */
                 if (test_failed) {
                     close(s);
+                    s = -1;
                 } else {
                     connected = 1;
                     break;
@@ -822,11 +855,42 @@ static int cobo_open_tree()
 
     /* accept a connection from parent and receive socket table */
     int reply_timeout = cobo_connect_timeout * 100;
+    long long accept_deadline = cobo_now_ms() + cobo_get_startup_timeout_ms();
     int have_parent = 0;
+    /* nonblocking as otherwiseo a connection reset between poll and accept would block */
+    fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL) | O_NONBLOCK);
     while (!have_parent) {
         struct sockaddr parent_addr;
         socklen_t parent_len = sizeof(parent_addr);
+        struct pollfd pfd;
+        long long remaining = accept_deadline - cobo_now_ms();
+        if (remaining <= 0) {
+            err_printf("Timed out waiting for parent to connect\n");
+            cobo_parent_fd = -1;
+            close(sockfd);
+            return -1;
+        }
+        pfd.fd = sockfd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int prc = poll(&pfd, 1, (int) remaining);
+        if (prc < 0 && errno != EINTR) {
+            err_printf("Polling listen socket failed (%m errno=%d)\n", errno);
+            cobo_parent_fd = -1;
+            close(sockfd);
+            return -1;
+        }
+        if (prc <= 0)
+            continue;
         cobo_parent_fd = accept(sockfd, (struct sockaddr *) &parent_addr, &parent_len);
+        if (cobo_parent_fd < 0) {
+            if (errno == EINTR || errno == ECONNABORTED ||
+                errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            err_printf("Accepting parent connection failed (%m errno=%d)\n", errno);
+            close(sockfd);
+            return -1;
+        }
 
         _cobo_opt_socket(cobo_parent_fd);
 
@@ -928,6 +992,8 @@ static int cobo_open_tree()
         err_printf("Receiving hostname table from parent failed\n");
         return -1;
     }
+
+    cobo_test_fault_point("tree", cobo_me);
 
 /*
     if (cobo_me == 0) {
@@ -1102,7 +1168,8 @@ static int cobo_allreduce_max_int_tree(int* sendbuf, int* recvbuf)
     }
 
     /* broadcast result of reduction from rank 0 to all tasks */
-    cobo_bcast_tree(recvbuf, sizeof(int));
+    if (cobo_bcast_tree(recvbuf, sizeof(int)) != COBO_SUCCESS)
+        return -1;
 
     return rc;
 }
@@ -1232,7 +1299,10 @@ int cobo_barrier()
     /* use allreduce of an int for our barrier */
     int dummy;
     int myint = 1;
-    cobo_allreduce_max_int_tree(&myint, &dummy);
+    if (cobo_allreduce_max_int_tree(&myint, &dummy) != COBO_SUCCESS) {
+        err_printf("Barrier failed\n");
+        return -1;
+    }
 
     cobo_gettimeofday(&end);
     debug_printf3("Exiting cobo_barrier(), took %f seconds for %d procs\n", cobo_getsecs(&end,&start), cobo_nprocs);
@@ -1371,7 +1441,8 @@ static int cobo_allreduce_max_int(int* sendint, int* recvint)
     debug_printf3("Starting cobo_allreducemaxint()");
 
     /* compute allreduce via tree */
-    cobo_allreduce_max_int_tree(sendint, recvint);
+    if (cobo_allreduce_max_int_tree(sendint, recvint) != COBO_SUCCESS)
+        return -1;
 
     cobo_gettimeofday(&end);
     debug_printf3("Exiting cobo_allreducemaxint(), took %f seconds for %d procs\n", cobo_getsecs(&end,&start), cobo_nprocs);
@@ -1471,19 +1542,42 @@ int cobo_allreduce( uint64_t *pval, cobo_op_t op ){
     }
 
     /* broadcast result of reduction from rank 0 to all tasks */
-    cobo_bcast_tree(pval, sizeof(int64_t));
+    if (cobo_bcast_tree(pval, sizeof(int64_t)) != COBO_SUCCESS)
+        return -1;
 
     return COBO_SUCCESS;
+}
+
+/* read COBO_CONNECT_* settings from the environment */
+static void cobo_read_env_settings(void)
+{
+    char *value;
+
+    /* milliseconds */
+    if ((value = cobo_getenv("COBO_CONNECT_TIMEOUT", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_timeout = atoi(value);
+
+    /* exponential backoff factor for connect */
+    if ((value = cobo_getenv("COBO_CONNECT_BACKOFF", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_backoff = atoi(value);
+
+    /* milliseconds to sleep before rescanning ports */
+    if ((value = cobo_getenv("COBO_CONNECT_SLEEP", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_sleep = atoi(value);
+
+    /* seconds */
+    if ((value = cobo_getenv("COBO_CONNECT_TIMELIMIT", ENV_OPTIONAL)) && atoi(value) > 0)
+        cobo_connect_timelimit = (double) atoi(value);
 }
 
 /* provide list of ports and number of ports as input, get number of tasks and my rank as output */
 int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* num_ranks)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    char *value;
 
     struct timeval start, end;
     cobo_gettimeofday(&start);
+    cobo_test_exit_hosts();
 
     /* we now know this process is a client, although we don't know what our rank is yet */
     cobo_me = -1;
@@ -1495,25 +1589,7 @@ int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* 
      * Get information from environment
      * ======================================================= */
 
-    /* milliseconds */
-    if ((value = cobo_getenv("COBO_CONNECT_TIMEOUT\n", ENV_OPTIONAL))) {
-        cobo_connect_timeout = atoi(value);
-    }
-
-    /* exponential backoff factor for connect */
-    if ((value = cobo_getenv("COBO_CONNECT_BACKOFF\n", ENV_OPTIONAL))) {
-        cobo_connect_backoff = atoi(value);
-    }
-
-    /* milliseconds to sleep before rescanning ports */
-    if ((value = cobo_getenv("COBO_CONNECT_SLEEP\n", ENV_OPTIONAL))) {
-        cobo_connect_sleep = atoi(value);
-    }
-
-    /* seconds */
-    if ((value = cobo_getenv("COBO_CONNECT_TIMELIMIT\n", ENV_OPTIONAL))) {
-        cobo_connect_timelimit = (double) atoi(value);
-    }
+    cobo_read_env_settings();
 
     debug_printf3("In cobo_init():\n" \
         "COBO_CONNECT_TIMEOUT: %d, COBO_CONNECT_BACKOFF: %d, COBO_CONNECT_SLEEP: %d, COBO_CONNECT_TIMELIMIT: %d\n",
@@ -1528,7 +1604,10 @@ int cobo_open(uint64_t sessionid, int* portlist, int num_ports, int* rank, int* 
     }
 
     /* open the tree */
-    cobo_open_tree();
+    if (cobo_open_tree() != COBO_SUCCESS) {
+        err_printf("Failed to connect the tree\n");
+        return -1;
+    }
 
     /* need to check that tree opened successfully before returning, so do a barrier */
     if (cobo_barrier() != COBO_SUCCESS) {
@@ -1596,6 +1675,8 @@ int cobo_server_get_root_socket(int* fd)
 /* given a hostlist and portlist where clients are running, open the tree and assign ranks to clients */
 int cobo_server_open(uint64_t sessionid, char** hostlist, int num_hosts, int* portlist, int num_ports)
 {
+    cobo_read_env_settings();
+
     /* at this point, we know this process is the server, so set its rank */
     cobo_me = -2;
     cobo_nprocs = num_hosts;

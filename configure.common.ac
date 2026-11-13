@@ -3,6 +3,7 @@
 DEFAULT_PORT=21940
 DEFAULT_LOC='$TMPDIR'
 DEFAULT_NUM_COBO_PORTS=250
+DEFAULT_CONNECT_TIMELIMIT=60
 DEFAULT_LOCAL_PREFIX='/var/:/tmp/:/proc/:/dev/:/sys/'
 
 AM_MAINTAINER_MODE([disable])
@@ -41,6 +42,21 @@ AC_ARG_WITH(default-local-prefix,
             [AS_HELP_STRING([--with-default-local-prefix=DIRS],[Colon-seperated list of directories that Spindle will not cache files out of])],
             [SPINDLE_LOCAL_PREFIX=${withval}],
             [SPINDLE_LOCAL_PREFIX="$DEFAULT_LOCAL_PREFIX:$COMMPATHS"])
+AC_ARG_WITH(default-connect-timelimit,
+            [AS_HELP_STRING([--with-default-connect-timelimit=SECS],[Time limit for Spindle startup connections; default for COBO_CONNECT_TIMELIMIT])],
+            [COBO_CONNECT_TIMELIMIT=${withval}],
+            [COBO_CONNECT_TIMELIMIT=$DEFAULT_CONNECT_TIMELIMIT])
+AC_ARG_WITH(default-ready-timelimit,
+            [AS_HELP_STRING([--with-default-ready-timelimit=SECS],[Time limit for applications to wait for the Spindle server to start; default for SPINDLE_READY_TIMELIMIT])],
+            [SPINDLE_READY_TIMELIMIT=${withval}],
+            [SPINDLE_READY_TIMELIMIT=])
+AS_CASE([$COBO_CONNECT_TIMELIMIT],
+        [''|*[[!0-9]]*|0*], [AC_MSG_ERROR([--with-default-connect-timelimit must be a positive integer number of seconds])])
+AS_CASE([$SPINDLE_READY_TIMELIMIT],
+        [''], [],
+        [*[[!0-9]]*|0*], [AC_MSG_ERROR([--with-default-ready-timelimit must be a positive integer number of seconds])],
+        [AC_DEFINE_UNQUOTED([SPINDLE_READY_TIMELIMIT],[$SPINDLE_READY_TIMELIMIT],[Default time limit in seconds for clients to wait for the server ready file])])
+AC_DEFINE_UNQUOTED([COBO_CONNECT_TIMELIMIT],[$COBO_CONNECT_TIMELIMIT],[Default startup and connection time limit in seconds])
 AC_DEFINE_UNQUOTED([SPINDLE_PORT],[$SPINDLE_PORT],[The default port for Spindle])
 AC_DEFINE_UNQUOTED([NUM_COBO_PORTS],[$NUM_COBO_PORTS],[Number of ports for COBO to search for an open port])
 AC_DEFINE_UNQUOTED([SPINDLE_MAX_PORT],[$(($SPINDLE_PORT + $NUM_COBO_PORTS - 1))],[The maximum port value])

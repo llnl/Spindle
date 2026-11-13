@@ -30,6 +30,7 @@
 #include "ldcs_audit_server_handlers.h"
 #include "ldcs_cache.h"
 #include "ldcs_cobo.h"
+#include "cobo_fault_inject.h"
 #include "cobo_comm.h"
 #include "config.h"
 
@@ -93,8 +94,9 @@ int ldcs_audit_server_md_init(unsigned int port, unsigned int num_ports,
    /* initialize the client (read environment variables) */
    debug_printf2("Opening cobo with port %d - %d\n", portlist[0], portlist[num_ports-1]);
    if (cobo_open(unique_id, (int *) portlist, num_ports, &my_rank, &ranks) != COBO_SUCCESS) {
-      printf("Failed to init\n");
-      exit(1);
+      err_printf("Failed to open the server tree\n");
+      free(portlist);
+      return -1;
    }
    debug_printf2("cobo_open complete. Cobo rank %d/%d\n", my_rank, ranks);
    free(portlist);
@@ -106,19 +108,24 @@ int ldcs_audit_server_md_init(unsigned int port, unsigned int num_ports,
    cobo_get_num_childs(&fanout);
    data->server_stat.md_fan_out = data->md_fan_out = fanout;
 
-   cobo_barrier();
+   if (cobo_barrier() != COBO_SUCCESS) {
+      err_printf("Server tree barrier failed\n");
+      return -1;
+   }
 
    /* send ack about being ready */
-   if (data->md_rank == 0) { 
-      int root_fd, ack=13;
+   if (data->md_rank == 0) {
+      int root_fd, ack = COBO_READY_ACK;
 
       /* send fe client signal to stop (ack)  */
-      cobo_get_parent_socket(&root_fd);
-    
-      ldcs_cobo_write_fd(root_fd, &ack, sizeof(ack));
+      if (cobo_get_parent_socket(&root_fd) != COBO_SUCCESS ||
+          ldcs_cobo_write_fd(root_fd, &ack, sizeof(ack)) < 0) {
+         err_printf("Could not send ready ack to FE\n");
+         return -1;
+      }
       debug_printf3("sent FE client signal that server are ready %d\n",ack);
    }
-  
+
    return(rc);
 }
 
@@ -261,13 +268,12 @@ int ldcs_audit_server_md_trash_bytes(node_peer_t peer, size_t size)
 
 int ldcs_audit_server_md_recv_from_parent(ldcs_message_t *msg)
 {
-   int fd, rc;
-   node_peer_t peer;
+   int fd = -1;
 
-   cobo_get_parent_socket(&fd);
-   rc = read_msg(fd, &peer, msg);
-   if (rc == -1) {
-      debug_printf2("Error return during recv from parent.\n");
+   if (cobo_get_parent_socket(&fd) != COBO_SUCCESS)
+      return -1;
+   if (read_msg_timeout(fd, msg, cobo_get_startup_timeout_ms()) == -1) {
+      err_printf("No message from parent within the startup time limit\n");
       return -1;
    }
    return 0;
@@ -298,7 +304,10 @@ int ldcs_audit_server_md_cobo_CB(int fd, int nc, void *data)
       return -1;
    }
 
+   /* A handler failure is not a failure of the *connection*. */
    rc = handle_server_message(ldcs_process_data, peer, &msg);
+   if (rc == -1)
+      err_printf("Error handling %s from fd %d\n", _message_type_to_str(msg.header.type), fd);
 
    ldcs_process_data->server_stat.md_cb.cnt++;
    ldcs_process_data->server_stat.md_cb.time+=(ldcs_get_time() - starttime);
@@ -306,7 +315,7 @@ int ldcs_audit_server_md_cobo_CB(int fd, int nc, void *data)
    if (msg.data)
       free(msg.data);
 
-   return(rc);
+   return 0;
 }
 
 int ldcs_audit_server_md_send(ldcs_process_data_t *ldcs_process_data, ldcs_message_t *msg, node_peer_t peer)
@@ -402,6 +411,11 @@ int ldcs_audit_server_md_get_num_children(ldcs_process_data_t *procdata)
    return num_childs;
 }
 
-void ldcs_audit_server_md_allreduce_AND( uint64_t *val ){
-    cobo_allreduce( val, COBO_OP_BITWISE_AND );
+int ldcs_audit_server_md_allreduce_AND( uint64_t *val ){
+    return cobo_allreduce( val, COBO_OP_BITWISE_AND ) == COBO_SUCCESS ? 0 : -1;
+}
+
+void ldcs_audit_server_md_test_fault_point(const char *phase, int md_rank)
+{
+   cobo_test_fault_point(phase, md_rank);
 }

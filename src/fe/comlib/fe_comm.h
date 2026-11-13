@@ -28,7 +28,8 @@ int ldcs_audit_server_fe_md_open(char **hostlist, int numhosts, unsigned int por
                                  unique_id_t unique_id, void **data);
 int ldcs_audit_server_fe_md_close(void *data);
 int ldcs_audit_server_fe_md_waitfor_close();
-int ldcs_audit_server_fe_md_waitfor_alive(int timeout_seconds);
+int ldcs_audit_server_fe_md_waitfor_alive();
+int ldcs_audit_server_fe_md_waitfor_preload();
 int ldcs_audit_server_fe_broadcast(ldcs_message_t *msg, void *data);
 
 #if defined(__cplusplus)
