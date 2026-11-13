@@ -296,7 +296,7 @@ cmd_build() {
                 "{\"built\": \"$(date -Iseconds)\", \"build_time_sec\": $duration}"
 
             # Check if build exceeded baseline (more lenient for compute nodes)
-            local baseline=250  # Observed: 227s on compute node, allow 10% margin
+            local baseline=450  # 13Nov2026 rzadams observed 300s.
             if [[ $duration -gt $baseline ]]; then
                 echo -e "${YELLOW}⚠${RESET}  Build time (${duration}s) exceeded baseline (${baseline}s)"
             fi

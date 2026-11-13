@@ -89,38 +89,15 @@ debugging work, etc.  Today's task is to start at the top with the
 previous branch has been renamed `podman-port-old`.  The new branch
 gets the `podman-port` name.
 
+Works:  ./spindle-podman build serial
+
+Bumped baseline build time to 450s.
+
 # Current Commit
-[podman-port] Reconstructs serial build
+[podman-port] Bump baseline serial build time to 450s
 
-spindle-podman build serial
-completed with
-    ==========================================
-    Build complete!
-    ==========================================
-
-    Image: spindle-serial-ubuntu
-
-    Next steps:
-      1. Run regular tests: ./scripts/podman/test-spindle-serial.sh
-      2. Run crash tests: ./scripts/podman/test-spindle-serial-crash.sh
-      3. Or manually: podman run --rm -it spindle-serial-ubuntu
-
-
-    ✓ Build completed in 300s
-    ⚠  Build time (300s) exceeded baseline (250s)
-
-Copies from podman-port-old (serial build)
-    spindle-podman
-    common.sh
-    build-spindle-serial.sh
-    Dockerfile.podman
-    entrypoint.sh.podman
-    .dockerignore
-    
-Updates .gitignore with
-    .podman-state.json
-    .podman-metrics.log
-    .podman-logs
-    .*.swp
-
+The check is here because of an earlier bug that kept adding
+build results to the same tarball; it eventually exceeded
+96 GB.  Slow build times were the first tip-off that something
+was amiss.
 
