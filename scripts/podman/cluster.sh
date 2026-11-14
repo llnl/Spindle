@@ -389,9 +389,9 @@ cl_snapshot_report() {
         return 0
     fi
 
-    cl_hdr "how Spindle was built to launch its daemons (HAVE_SRUN_EXTERNAL_LAUNCHER must be 1 on Slurm >= 23.11)"
+    cl_hdr "how Spindle was built to launch its daemons (srun flavor: HAVE_SRUN_EXTERNAL_LAUNCHER must be 1 on Slurm >= 23.11)"
     # shellcheck disable=SC2016
-    cl_pxsh "$p-head" 'srun --version; grep -rh "^#define HAVE_SRUN_EXTERNAL_LAUNCHER\|^#define BROKEN_SRUN" $(find "$HOME/Spindle-build" -name config.h) 2>&1 | sort | uniq -c'
+    cl_pxsh "$p-head" 'srun --version; grep -rh "^#define HAVE_SRUN_EXTERNAL_LAUNCHER\|^#define BROKEN_SRUN\|^#define RSHLAUNCH_ENABLED\|^#define ENABLE_SLURM_PLUGIN" $(find "$HOME/Spindle-build" -name config.h) 2>&1 | sort | uniq -c'
 
     cl_hdr "slurm view (head)"
     cl_px "$p-head" squeue

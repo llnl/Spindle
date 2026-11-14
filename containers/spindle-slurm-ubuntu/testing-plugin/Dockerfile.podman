@@ -1,0 +1,81 @@
+FROM spindle-slurm-base:latest
+ARG replicas=4
+ENV workers=${replicas}
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+ENV SPINDLE_TEST_CONTAINER=1
+
+# Slurm "plugin" flavor: Spindle runs as a SPANK plugin inside slurmd, and starts its daemons from the
+# job prolog.  Same cluster as the srun image, plus: PrologFlags=Contain, a plugstack.conf that loads
+# libspindleslurm.so, and a Spindle configured with --enable-slurm-plugin.  Files for the plugin itself
+# come from testing-plugin/ (devel's, shared with the GitHub workflow); the Slurm templates, setup and
+# entrypoint are the srun image's, so they are used from there.
+ARG BUILD_ROOT=containers/spindle-slurm-ubuntu/testing-plugin
+ARG SHARED_ROOT=containers/spindle-slurm-ubuntu/testing-srun
+
+# Slurm daemons run as $SLURM_USER
+ARG SLURM_USER=slurm
+
+# Applications run as $USER
+ARG USER=slurmuser
+ARG UID=1001
+
+# Set up the Slurm install already present in the base image
+USER root
+COPY ${SHARED_ROOT}/scripts/setup_slurm.sh.podman /setup_slurm.sh
+COPY ${SHARED_ROOT}/conf/slurm.conf.template.podman /home/${SLURM_USER}/slurm.conf.template
+COPY ${SHARED_ROOT}/conf/slurmdbd.conf.template.podman /home/${SLURM_USER}/slurmdbd.conf.template
+COPY ${SHARED_ROOT}/conf/cgroup.conf /home/${SLURM_USER}/cgroup.conf
+RUN chmod +x /setup_slurm.sh && /setup_slurm.sh
+
+# devel's plugin slurm.conf differs from the srun one in exactly this line.  The entrypoint renders
+# slurm.conf from the template, so the template and the build-time stub both get it.
+RUN echo 'PrologFlags=Contain' >> /etc/slurm/slurm.conf.template && \
+    echo 'PrologFlags=Contain' >> /etc/slurm/slurm.conf
+
+USER ${USER}
+WORKDIR /home/${USER}
+
+# Copy the Spindle repo into the container and build it
+RUN mkdir -p /home/${USER}/Spindle
+COPY . /home/${USER}/Spindle
+
+# Fix permissions on Spindle source
+USER root
+RUN chmod -R u+rwX /home/${USER}/Spindle && \
+    chown -R ${USER}:${USER} /home/${USER}/Spindle
+
+# devel's build script configures with --with-rm=slurm-plugin --enable-slurm-plugin
+COPY ${BUILD_ROOT}/scripts/build_spindle.sh /home/${USER}/build_spindle.sh
+RUN chmod +rx /home/${USER}/build_spindle.sh && \
+    chown ${USER}:${USER} /home/${USER}/build_spindle.sh
+
+# Build Spindle as user
+USER ${USER}
+RUN bash ./build_spindle.sh
+
+# Fail the build if the plugin was not configured and built (see the script).
+COPY ${SHARED_ROOT}/scripts/check_launch_mode.sh.podman /check_launch_mode.sh
+USER root
+RUN chmod +rx /check_launch_mode.sh
+RUN /check_launch_mode.sh plugin /home/${USER}/Spindle-build
+
+# Tell slurmd to load the plugin (devel's two small files, unchanged)
+COPY ${BUILD_ROOT}/scripts/setup_spank_plugin.sh /setup_spank_plugin.sh
+COPY ${BUILD_ROOT}/conf/plugstack.conf /home/${SLURM_USER}/plugstack.conf
+RUN chmod +x /setup_spank_plugin.sh && /setup_spank_plugin.sh
+
+# salloc and srun run as $USER and read plugstack.conf too.  COPY keeps the source file's mode, which
+# is 660 in a private checkout (644 on GitHub), and devel's script only chowns it to slurm.
+# Without this: "salloc: error: spank: Failed to open /etc/slurm/plugstack.conf: Permission denied".
+RUN chmod 644 /etc/slurm/plugstack.conf
+
+# The srun image's entrypoint: munged, config rendering, and the daemon chosen by SLURM_ROLE
+COPY ${SHARED_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint.sh
+RUN chmod +rx /home/${USER}/entrypoint.sh && \
+    chown ${USER}:${USER} /home/${USER}/entrypoint.sh
+
+USER ${USER}
+ENV PATH /home/${USER}/Spindle-inst/bin:$PATH
+
+ENTRYPOINT /bin/bash ./entrypoint.sh

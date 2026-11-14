@@ -23,7 +23,7 @@ if [[ -z "${T_IMAGE[$TARGET]:-}" ]]; then
     exit 1
 fi
 RUN_ID="${1:-1}"
-PREFIX="${TARGET}-${RUN_ID}"
+PREFIX="${T_CLUSTER_NAME[$TARGET]:-$TARGET}-${RUN_ID}"
 IMAGE="${T_IMAGE[$TARGET]}"
 # Per-target container options (e.g. uid maps).  Set CLUSTER_RUN_ARGS yourself, even to the empty
 # string, to try something else:   CLUSTER_RUN_ARGS= ./spindle-podman test slurm-rshlaunch
@@ -32,7 +32,18 @@ export CLUSTER_RUN_ARGS="${CLUSTER_RUN_ARGS-${T_RUN_ARGS[$TARGET]:-}}"
 echo "=========================================="
 echo "Spindle $TARGET tests (run $RUN_ID)"
 echo "=========================================="
-echo "extra podman run options for the Slurm containers: ${CLUSTER_RUN_ARGS:-<none>}"
+echo "cluster name: $PREFIX   extra podman run options for the Slurm containers: ${CLUSTER_RUN_ARGS:-<none>}"
+
+# Some targets cannot cope with long node names (see T_NODE_NAME_MAX in targets.sh); stop before 10
+# minutes of hanging tests, not after.
+if [[ -n "${T_NODE_NAME_MAX[$TARGET]:-}" ]]; then
+    longest="$PREFIX-node-$CLUSTER_WORKERS"
+    if (( ${#longest} > T_NODE_NAME_MAX[$TARGET] )); then
+        echo "Error: node name '$longest' is ${#longest} characters; $TARGET needs at most ${T_NODE_NAME_MAX[$TARGET]}."
+        echo "       Use a shorter run id (--id), or fewer workers."
+        exit 1
+    fi
+fi
 
 if ! podman image exists "$IMAGE" 2>/dev/null; then
     echo "Error: image $IMAGE not found on this node.  Build it with: ./spindle-podman build $TARGET"

@@ -796,6 +796,23 @@ cmd_load() {
     done
 }
 
+# Runs a command in a container with the same podman state directory as every other command here
+# (env.sh pins XDG_RUNTIME_DIR), so it works from any shell.  No command: an interactive shell.
+cmd_exec() {
+    local c="${1:-}"
+    if [[ -z "$c" ]]; then
+        echo "Usage: $0 exec <container> [command [args...]]"
+        echo "Running containers:"
+        podman ps --format '  {{.Names}}' 2>/dev/null
+        return 1
+    fi
+    shift
+    local tty=()
+    [[ -t 0 && -t 1 ]] && tty=(-it)
+    [[ $# -gt 0 ]] || set -- bash
+    exec podman exec ${tty[@]+"${tty[@]}"} "$c" "$@"
+}
+
 cmd_env() {
     echo "export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
     echo "# eval \"\$($0 env)\" to give another shell the same podman state directory"
@@ -906,7 +923,8 @@ spindle-podman test <target> [options]
 
   --repeat N, -r N  Run N times; stop at the first failure.
   --background, -b  Run in the background.
-  --id N            Name the cluster slurm-srun-N, so several runs can coexist (default 1).
+  --id N            Name the cluster <name>-N (slurm-srun-N, slurm-plug-N, ...), so several runs
+                    can coexist (default 1).  The name stem is T_CLUSTER_NAME in targets.sh.
   --keep            Leave the cluster running afterwards (sets CLUSTER_KEEP=1).
   --debug N         Run Spindle at SPINDLE_DEBUG=N; debug logs are collected on a hang.
   --timeout S       Declare a hang when no new test has started for S seconds (default 600;
@@ -987,6 +1005,19 @@ spindle-podman env
 EOF
 }
 
+help_exec() {
+    cat <<'EOF'
+spindle-podman exec <container> [command [args...]]
+
+  Run a command inside a running container, e.g.
+      ./spindle-podman exec slurm-plug-1-head sinfo
+  With no command, opens a shell.  Uses the same podman state directory as every other command here,
+  so it works from any terminal; a bare `podman exec` typed in another shell fails with
+  "crun: error opening file ... status" unless `eval "$(./spindle-podman env)"` was run first.
+  With no container, lists the running ones.
+EOF
+}
+
 help_diagnose() {
     cat <<'EOF'
 spindle-podman diagnose <topic> [args]
@@ -1019,8 +1050,9 @@ help_command() {
         save)               help_save ;;
         load)               help_load ;;
         env)                help_env ;;
+        exec)               help_exec ;;
         diagnose)           help_diagnose ;;
-        *) echo "No help for '$1'.  Commands: status build test cleanup defenestrate logs save load env diagnose"
+        *) echo "No help for '$1'.  Commands: status build test cleanup defenestrate logs save load env exec diagnose"
            return 1 ;;
     esac
 }
@@ -1045,6 +1077,7 @@ Commands:
   load               Load that tarball on a new node
   diagnose <topic>   dns / ssh: probe the container network and sshd; hang: evidence from a stuck cluster
   env                Print the XDG_RUNTIME_DIR export, for podman commands typed by hand
+  exec <container>   Run a command (default: a shell) in a container; no need for `env` first
   logs [N]           Show recent log sessions
   cleanup            Remove containers and networks (gentle)
   defenestrate       Remove everything, immediately
@@ -1142,6 +1175,10 @@ main() {
             ;;
         env)
             cmd_env
+            ;;
+        exec)
+            shift
+            cmd_exec "$@"
             ;;
         diagnose|diag)
             shift

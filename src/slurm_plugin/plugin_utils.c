@@ -169,7 +169,10 @@ char **getHostsScontrol(unsigned int num_hosts, const char *hoststr)
 char **getHostAddrSinfo(unsigned int num_hosts, char **hostlist)
 {
    const char *sinfo_path = SLURM_SINFO_BIN;
-   const char *sinfo_args = "-O NodeAddr -h -n";
+   /* sinfo truncates -O fields to a default width (20 characters) unless a size is given.  Longer node
+    * addresses, like fully qualified hostnames, would come back cut off.  255 covers any DNS name.  The
+    * padding sinfo adds is stripped below, where the address is cut at the first non-hostname character. */
+   const char *sinfo_args = "-O NodeAddr:255 -h -n";
    const char *sinfo_suffix = "2> /dev/null";
    FILE *f = NULL;
    char **hostaddrlist = NULL, *s, *sinfo_cmdline = NULL, **ret = NULL;

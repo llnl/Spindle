@@ -56,29 +56,31 @@ and `rzadams1017`.
 9. Don't write to this file.
 
 # State
-    ✓ `spindle-podman status`
-    ✓ `spindle-podman help`
-    ✓ `spindle-podman save`
-    ✓ `spindle-podman load`
+spindle-podman commands
+    ✓ `status`
+    ✓ `help`
+    ✓ `save`
+    ✓ `load`
     ✓ `diagnose ssh`
 
-    ✓ `spindle-podman build serial`
-    ✓ `spindle-podman build mariadb`
-    ✓ `spindle-podman build slurm-base`
-    ✓ `spindle-podman build slurm-srun`
+    ✓ `build serial`
+    ✓ `build mariadb`
+    ✓ `build slurm-base`
+    ✓ `build slurm-srun`
     ✓ `build slurm-rshlaunch` (289s) 
+    ✓ `build slurm-plugin` (284s) 
 
-    ✓ `spindle-podman test serial`
-    ✓ `spindle-podman test slurm-srun`
+    ✓ `test serial`
+    ✓ `test slurm-srun`
     ✓ `test slurm-rshlaunch` (200s)
-
+    ✓ `test slurm-plugin` (122s)
 
 # Manifest (last updated 13Nov2026)
-        containers/spindle-slurm-ubuntu/
-        containers/spindle-slurm-ubuntu/
-        containers/spindle-slurm-ubuntu/
-        scripts/podman/probe-ssh.sh
-        scripts/podman/
+    To be added:
+    test-spindle-slurm-srun.sh -> test-spindle-slurm.sh (generic, all Slurm flavors)   [fix line 103]
+    containers/spindle-slurm-ubuntu/testing-plugin/Dockerfile.podman   plugin image: srun image's cluster
+        files + PrologFlags=Contain, plugstack.conf (chmod 644), libspindleslurm.so guard.
+    src/slurm_plugin/plugin_utils.c (modified, the one source change on this branch)
 
 All new unless marked (modified).  Files with a .podman suffix are podman variants of devel's
 files; devel's originals are untouched, so the GitHub workflows are unaffected.
@@ -189,6 +191,12 @@ Hypothesis, not verified.  Plan: pin XDG_RUNTIME_DIR in spindle-podman and the p
 
 `slurm-srun` passes.
 
+Two causes, one per failed run.  (1) salloc runs as the job user and must read plugstack.conf;
+COPY keeps the checkout's mode (660 here, 644 on GitHub).  (2) Spindle's getHostAddrSinfo used
+`sinfo -O NodeAddr`, truncated to 20 characters; our 21-character node names broke the FE.
+Workaround kept until the fix is verified on a long name: T_CLUSTER_NAME / T_NODE_NAME_MAX.
+Open: CI also runs session tests (--spindle-session) and four crash-test variants for the plugin; not yet here.
+
 # Current Commit
 [podman-port] slurm-rshlaunch target passes; one test script for all Slurm flavors
 
@@ -199,3 +207,26 @@ Slurm containers (T_RUN_ARGS, from LLNL's container gotchas page).
 
 Also: test-spindle-slurm.sh replaces the srun-only script; build guard shared
 as check_launch_mode.sh.podman (checks srun or rsh mode).
+
+
+[podman-port] slurm-plugin target passes; fix truncated sinfo node addresses
+
+Adds `spindle-podman test slurm-plugin` (122 s): a Slurm cluster with
+Spindle loaded as a SPANK plugin.
+
+Spindle fix (src/slurm_plugin/plugin_utils.c): getHostAddrSinfo ran
+`sinfo -O NodeAddr`, whose column sinfo truncates to 20 characters.  A node
+named slurm-plugin-1-node-1 came back as "slurm-plugin-1-node-", the front
+end could not resolve it, and the first test hung.  Ask for `NodeAddr:255`.
+CI's names are short, so it never showed.  (Fully qualified hostnames over
+20 characters would hit it anywhere.)
+
+Podman side:
+- plugstack.conf is chmod 644: salloc/srun read it as the job user.
+- Cluster names for the plugin target use a short stem (T_CLUSTER_NAME) and
+  the test script refuses names past 20 characters (T_NODE_NAME_MAX), so the
+  bug cannot silently return; both lines can go once the fix is verified.
+- check_launch_mode.sh.podman gains a "plugin" mode (macro and installed
+  libspindleslurm.so).
+
+Adds spindle-podman exec: runs podman exec with the pinned runtime directory, so it works from any shell.
