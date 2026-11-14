@@ -1,0 +1,67 @@
+FROM spindle-slurm-base:latest
+ARG replicas=4
+ENV workers=${replicas}
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+ENV SPINDLE_TEST_CONTAINER=1
+
+ARG BUILD_ROOT=containers/spindle-slurm-ubuntu/testing-srun
+
+# Slurm daemons run as $SLURM_USER
+ARG SLURM_USER=slurm
+
+# Applications run as $USER
+ARG USER=slurmuser
+ARG UID=1001
+
+# Set up the Slurm install already present in the base image
+USER root
+COPY ${BUILD_ROOT}/scripts/setup_slurm.sh.podman /setup_slurm.sh
+COPY ${BUILD_ROOT}/conf/slurm.conf.template.podman /home/${SLURM_USER}/slurm.conf.template
+COPY ${BUILD_ROOT}/conf/slurmdbd.conf.template.podman /home/${SLURM_USER}/slurmdbd.conf.template
+COPY ${BUILD_ROOT}/conf/cgroup.conf /home/${SLURM_USER}/cgroup.conf
+RUN chmod +x /setup_slurm.sh && /setup_slurm.sh
+
+USER ${USER}
+WORKDIR /home/${USER}
+
+# Copy the Spindle repo into the container and build it
+RUN mkdir -p /home/${USER}/Spindle
+COPY . /home/${USER}/Spindle
+
+# Fix permissions on Spindle source
+USER root
+RUN chmod -R u+rwX /home/${USER}/Spindle && \
+    chown -R ${USER}:${USER} /home/${USER}/Spindle
+
+# Copy and prepare build script
+COPY ${BUILD_ROOT}/scripts/build_spindle.sh /home/${USER}/build_spindle.sh
+RUN chmod +rx /home/${USER}/build_spindle.sh && \
+    chown ${USER}:${USER} /home/${USER}/build_spindle.sh
+
+# Build Spindle as user
+USER ${USER}
+RUN bash ./build_spindle.sh
+
+# Fail the build if Spindle was configured for the wrong srun launch mode: HAVE_SRUN_EXTERNAL_LAUNCHER
+# must be 1 on Slurm >= 23.11.  (See setup_slurm.sh.podman for why this went wrong once.)
+RUN files=$(find /home/${USER}/Spindle-build -name config.h -print0 | xargs -0 grep -l HAVE_SRUN_EXTERNAL_LAUNCHER 2>/dev/null || true); \
+    echo "srun version seen at build time: $(srun --version 2>&1 | head -1)"; \
+    echo "config.h files that define the launch mode: ${files:-none}"; \
+    [ -z "$files" ] || grep -H '^#define HAVE_SRUN_EXTERNAL_LAUNCHER' $files; \
+    if [ -z "$files" ]; then echo "ERROR: no config.h defines HAVE_SRUN_EXTERNAL_LAUNCHER (it is defined in every build)"; exit 1; fi; \
+    if grep -h '^#define HAVE_SRUN_EXTERNAL_LAUNCHER' $files | grep -qvE ' 1[[:space:]]*$'; then \
+        echo "ERROR: Spindle was configured without --external-launcher support."; \
+        echo "       Its srun daemon launch would starve the application of CPUs."; exit 1; \
+    fi
+
+# Copy entrypoint as root
+USER root
+COPY ${BUILD_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint.sh
+RUN chmod +rx /home/${USER}/entrypoint.sh && \
+    chown ${USER}:${USER} /home/${USER}/entrypoint.sh
+
+USER ${USER}
+ENV PATH /home/${USER}/Spindle-inst/bin:$PATH
+
+ENTRYPOINT /bin/bash ./entrypoint.sh

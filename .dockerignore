@@ -24,3 +24,8 @@ podman-concurrency-investigation/
 
 # Exclude debugging artifacts
 debugging/
+
+# Exclude logs
+.podman-logs/
+.podman-*
+

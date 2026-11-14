@@ -1,0 +1,10 @@
+AuthType=auth/munge
+DbdAddr=${SLURM_DB_HOST}
+DbdHost=${SLURM_DB_HOST}
+SlurmUser=slurm
+DebugLevel=4
+LogFile=/var/log/slurm/slurmdbd.log
+PidFile=/var/run/slurmdbd/slurmdbd.pid
+StorageType=accounting_storage/mysql
+StorageHost=${SLURM_MARIADB_HOST}
+StorageUser=slurm

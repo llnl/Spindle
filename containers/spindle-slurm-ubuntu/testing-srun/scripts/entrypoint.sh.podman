@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# Podman-compatible entrypoint for Slurm srun containers
+
+
+echo "SLURM_ROLE: ${SLURM_ROLE}"
+
+echo "Starting munged..."
+sudo -u munge /usr/sbin/munged
+sleep 2
+
+# Generate slurm.conf from template with runtime hostname substitution
+echo "Generating slurm.conf from template..."
+export SLURM_HEAD_NODE=${SLURM_HEAD_NODE:-slurm-head}
+export SLURM_DB_HOST=${SLURM_DB_HOST:-slurm-db}
+export SLURM_NODE_PREFIX=${SLURM_NODE_PREFIX:-slurm-node}
+echo "DEBUG: SLURM_HEAD_NODE=$SLURM_HEAD_NODE"
+echo "DEBUG: SLURM_DB_HOST=$SLURM_DB_HOST"
+echo "DEBUG: SLURM_NODE_PREFIX=$SLURM_NODE_PREFIX"
+echo "DEBUG: Template first 3 lines:"
+sudo head -3 /etc/slurm/slurm.conf.template
+echo "DEBUG: Running sed to substitute variables..."
+sudo sed -e "s/\${SLURM_HEAD_NODE}/$SLURM_HEAD_NODE/g" \
+         -e "s/\${SLURM_DB_HOST}/$SLURM_DB_HOST/g" \
+         -e "s/\${SLURM_NODE_PREFIX}/$SLURM_NODE_PREFIX/g" \
+         /etc/slurm/slurm.conf.template | sudo tee /etc/slurm/slurm.conf > /dev/null
+
+# Add NodeName entries dynamically based on $workers
+workers=${workers:-4}
+for i in $(seq 1 $workers); do
+    echo "NodeName=${SLURM_NODE_PREFIX}-${i} NodeAddr=${SLURM_NODE_PREFIX}-${i} CPUs=3 RealMemory=1000 State=UNKNOWN" | sudo tee -a /etc/slurm/slurm.conf > /dev/null
+done
+sudo chmod 644 /etc/slurm/slurm.conf
+
+echo "Generated slurm.conf (first 10 lines):"
+sudo head -10 /etc/slurm/slurm.conf
+echo "..."
+echo "Last 5 lines:"
+sudo tail -5 /etc/slurm/slurm.conf
+echo ""
+
+if [ "${SLURM_ROLE}" = "db" ]; then
+    echo "=== ENTRYPOINT DEBUG (v2) ==="
+    echo "MARIADB_PASSWORD is set: $([ -n "$MARIADB_PASSWORD" ] && echo YES || echo NO)"
+    echo "MARIADB_PASSWORD length: ${#MARIADB_PASSWORD}"
+    echo "Template exists: $([ -f /etc/slurm/slurmdbd.conf.template ] && echo YES || echo NO)"
+
+    # Generate slurmdbd.conf from template with runtime hostname and password substitution
+    if [ -n "$MARIADB_PASSWORD" ]; then
+        echo "Generating slurmdbd.conf from template..."
+        export SLURM_MARIADB_HOST=${SLURM_MARIADB_HOST:-slurm-mariadb}
+        echo "DEBUG: SLURM_DB_HOST=$SLURM_DB_HOST"
+        echo "DEBUG: SLURM_MARIADB_HOST=$SLURM_MARIADB_HOST"
+        echo "DEBUG: Template first 3 lines:"
+        sudo head -3 /etc/slurm/slurmdbd.conf.template
+        echo "DEBUG: Running sed to substitute variables..."
+        sudo sed -e "s/\${SLURM_DB_HOST}/$SLURM_DB_HOST/g" \
+                 -e "s/\${SLURM_MARIADB_HOST}/$SLURM_MARIADB_HOST/g" \
+                 /etc/slurm/slurmdbd.conf.template | sudo tee /etc/slurm/slurmdbd.conf > /dev/null
+        echo "StoragePass=${MARIADB_PASSWORD}" | sudo tee -a /etc/slurm/slurmdbd.conf > /dev/null
+        sudo chmod 600 /etc/slurm/slurmdbd.conf
+        sudo chown slurm:slurm /etc/slurm/slurmdbd.conf
+    else
+        echo "ERROR: MARIADB_PASSWORD not set!"
+        echo "Old config exists: $([ -f /etc/slurm/slurmdbd.conf ] && echo YES || echo NO)"
+    fi
+    echo "=== END DEBUG ==="
+    echo ""
+
+    echo "Starting slurmdbd..."
+    exec sudo -u slurm /usr/sbin/slurmdbd -Dvvv
+elif [ "${SLURM_ROLE}" = "ctl" ] ; then
+    echo "Starting slurmctld..."
+    exec sudo -u slurm /usr/sbin/slurmctld -i -Dvvv
+elif [ "${SLURM_ROLE}" = "worker" ] ; then
+    echo "Starting slurmd..."
+    exec sudo /usr/sbin/slurmd -Dvvv
+else
+    echo "Unknown SLURM_ROLE: ${SLURM_ROLE}"
+    echo "Valid roles: db, ctl, worker"
+    exit 1
+fi

@@ -55,42 +55,80 @@ and `rzadams1017`.
 
 9. Don't write to this file.
 
-
-# Manifest (last updated 13Nov2026)
-
-podman-port/
-            .dockerignore
-            spindle-podman                                                      primary interface, bash script.
-
-           scripts/podman/
-                           build-spindle-serial.sh                              build script for serial
-                           build-spindle-slurm-base.sh                          build script for slurm base (should only need to be run once)
-                           common.sh                                            has the LC cert mounts and the podman_build helper.
-                           targets.sh                                           describes the build targets, expected build time, etc.
-                           test-spindle-serial.sh
-
-           containers/spindle-serial-ubuntu/
-                                            Dockerfile.podman
-
-                                            scripts/
-                                                    entrypoint.sh.podman
-
-                      /spindle-slurm-ubuntu/base/
-                                                 Dockerfile.podman
-                                                 scripts/
-                                                         build_mpich.sh.podman
-
-
 # State
     ✓ `spindle-podman status`
     ✓ `spindle-podman help`
+    ✓ `spindle-podman save`
+
     ✓ `spindle-podman build serial`
-    ✓ `spindle-podman test serial`
+    ✓ `spindle-podman build mariadb`
     ✓ `spindle-podman build slurm-base`
+    ✓ `spindle-podman build slurm-srun`
+
+    ✓ `spindle-podman test serial`
+    ✓ `spindle-podman test slurm-srun`
+
+# Manifest (last updated 13Nov2026)
+
+All new unless marked (modified).  Files with a .podman suffix are podman variants of devel's
+files; devel's originals are untouched, so the GitHub workflows are unaffected.
+
+spindle-podman                  The one entry point (bash): status build test save load env
+                                diagnose logs cleanup defenestrate help.  `help` is the documentation.
+STATE.md                        This file.
+.dockerignore                   Keeps the image tarball, logs and git metadata out of the build
+                                context (the context is the repo root).
+.gitignore (modified)           Ignores .podman-state.json, .podman-metrics.log, .podman-logs/.
+
+scripts/podman/
+  targets.sh                    Target registry: image, Dockerfile, prerequisites, expected build
+                                time, test script.  Add a target here, not in spindle-podman.
+  env.sh                        Pins XDG_RUNTIME_DIR (/var/tmp/$USER/xdg-runtime).  Sourced.
+  common.sh                     LC certificate mounts for builds.  Its podman_build/podman_run
+                                helpers are mostly unused now.
+  cluster.sh                    Library: Slurm cluster up/down (network, MariaDB, hand-started
+                                aardvark-dns, workers, slurmdbd, slurmctld, readiness polling),
+                                the testsuite runner with hang detection, and snapshots.
+  test-spindle-serial.sh        Serial test: one container, munge check, testsuite.
+  test-spindle-slurm-srun.sh    srun test: cluster_up, testsuite, cluster_down (always).
+  probe-dns.sh                  `diagnose dns`: tests container name resolution layer by layer.
+
+containers/spindle-serial-ubuntu/
+  Dockerfile.podman             Serial image.  PODMAN_BUILD=true works around apt's setgroups error.
+  scripts/entrypoint.sh.podman  Starts munged in the background and sleeps (devel's runs it in the
+                                foreground, which would end the container).
+containers/spindle-slurm-ubuntu/
+  base/Dockerfile.podman        Slurm + MPICH base image.
+  base/scripts/build_mpich.sh.podman
+                                tar --no-same-owner, which rootless podman needs.
+  testing-srun/Dockerfile.podman
+                                srun image: copies templates, builds Spindle, and FAILS the build
+                                if Spindle was configured without --external-launcher.
+  testing-srun/conf/slurm.conf.template.podman
+  testing-srun/conf/slurmdbd.conf.template.podman
+                                Hostname placeholders, filled in at container start.
+                                TaskPlugin=task/none (task/affinity fails in rootless podman).
+  testing-srun/scripts/setup_slurm.sh.podman
+                                Installs the templates plus a stub slurm.conf, so `srun --version`
+                                works when Spindle is configured (see 13Nov2026, srun passes).
+  testing-srun/scripts/entrypoint.sh.podman
+                                Renders the configs from the templates, then starts the daemon
+                                named by SLURM_ROLE (db, ctl, worker).  Never prints the password.
+
+Generated, not committed:
+  .podman-state.json  .podman-metrics.log  .podman-logs/    State, timings, per-run logs and snapshots.
+  <workspace>/tmp/podman-images/spindle-images.tar          Saved images (3.9 GB), outside the repo.
+
+
+#  Next
+rshlaunch, then flux, then slurm plugin as new targets.  rshlaunch's old failure was
+"Connection reset ... port 22"; the LLNL doc on uid maps (--uidmap 0:0:2000
+--uidmap 65534:2000:2) is an untested lead for sshd.  `--repeat` on srun to find flakiness.
 
 # Diary
 
-## 13Nov2026
+## Preamble
+
 Starting the fourth attempt...
 In the previous `podman-port` branch I did a rebase that ended
 up scrambling the hashes for subsequent commits.  I also failed to
@@ -100,30 +138,64 @@ debugging work, etc.  Today's task is to start at the top with the
 previous branch has been renamed `podman-port-old`.  The new branch
 gets the `podman-port` name.
 
-Works:  ./spindle-podman build serial
-        ./spindle-podman test serial
+## 13Nov2026
 
+Replaced per-target build scripts with the registry (scripts/podman/targets.sh).
+`build-spindle-*.sh` are now dead code; delete when convenient.
 
-Bumped baseline build time to 450s.
+Old srun/rshlaunch test scripts reviewed (podman-port-old/scripts/podman/).
+- test-spindle-slurm-srun.sh is the N-instance one; the "-parallel" one is stale.
+- srun needs no generate_config.sh / mariadb.env (password passed at runtime).
+- Do not copy blindly: exit status is lost through `| tee` (no pipefail),
+  and there are /dev/tty prompts.
+- ~100s of the runtime is fixed sleeps; replace with readiness polling.
+
+Open question: does name-based container DNS work under rootless podman here?
+(rshlaunch scripts inject /etc/hosts because aardvark-dns "did not function".)
+The answer decides the cluster bring-up design.
+
+Container-name DNS is broken on this system, and the cause is known.  netavark launches
+aardvark-dns via `systemd-run -q --scope --user`, which fails because /run/user/<uid> (and its
+bus) does not exist.  netavark ignores the failure; no DNS server runs.  IP routing is fine.
+Started by hand inside the rootless netns, aardvark-dns serves names correctly and picks up
+containers started later:
+  podman unshare --rootless-netns aardvark-dns --config <runroot>/networks/aardvark-dns -p 53 run
+Decision: cluster helper pre-starts aardvark-dns; /etc/hosts injection is the fallback.
+Also: `podman inspect` cannot read IPs here (cgroup setup fails); read them from inside containers.
+Evidence: scripts/podman/probe-dns.sh (output in .podman-logs/probe-dns-run3.txt).
+
+Cluster bring-up works: DNS via pre-started aardvark-dns, readiness polling, 34s to ready.
+The first Spindle test then hangs; srun reports "Requested nodes are busy" (step creation
+disabled).  Hypothesis: Slurm 25.05 steps claim all CPUs, leaving none for Spindle's daemon step.
+Not yet confirmed (needs a SPINDLE_DEBUG=3 log).
+
+Podman gotcha: if /run/user/<uid> does not exist when containers are started, crun state goes to
+<TMPDIR>/storage-run-<uid>.  A later login (e.g. a second terminal) creates /run/user/<uid>, and
+exec/stop/rm on the running containers then fail ("crun: error opening file .../status").
+Hypothesis, not verified.  Plan: pin XDG_RUNTIME_DIR in spindle-podman and the podman wrapper.
+
+`slurm-srun` passes.
 
 # Current Commit
-[podman-port] Adds build registry.
+  [podman-port] srun cluster test passes under rootless podman
 
-Adds registry (targets.sh) describing each build target, expected
-completion time, etc.  Allows for code duplication removal.
+  Adds `spindle-podman test slurm-srun`: a 4-worker Slurm cluster (MariaDB,
+  slurmdbd, slurmctld) in rootless podman, running the Spindle testsuite
+  (138 s end to end).
 
-Adds `--dry-run` to `spindle-podman build x` to allow verification
-that nothing in the build process has changed without needed a 
-full build.
+  New targets and commands: slurm-srun and mariadb (pulled) targets; save,
+  load, env, diagnose; per-command help and typical workflows.
 
-Bugfixes:
+  Findings that shaped the design (details in STATE.md):
+  - netavark starts aardvark-dns through `systemd-run --user`, which fails
+    without /run/user/<uid>; the cluster helper starts aardvark-dns itself.
+  - Spindle's configure picks its srun launch mode from `srun --version`,
+    which fails without a slurm.conf; the image now ships a stub so Spindle
+    gets --external-launcher.  A build guard fails the image if it does not.
+  - podman state follows XDG_RUNTIME_DIR, which moves when a login session
+    appears; spindle-podman pins it.
 
-1. logs no longer flags every later log in a session once one has errors
-2. The grep -c ... || echo 0 pattern is fixed, so it can't write 0\n0 into the state JSON. 
-3. cleanup and defenestrate no longer delete `/tmp/spindle*` on the host.
+  Also: hang detection with automatic snapshot (redacted), readiness polling
+  instead of sleeps, per-target build baselines, pulled-image targets, and
+  removal of the per-target build scripts.
 
-
-
-Adds:
-
-targets.sh

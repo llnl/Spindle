@@ -28,10 +28,15 @@ else
 fi
 
 # Source common podman utilities
-# shellcheck source=scripts/podman/common.sh
+# shellcheck source=scripts/podman/env.sh
+source "$REPO_ROOT/scripts/podman/env.sh"
+# shellcheck source=scripts/podman/common.sh disable=SC1091
 source "$REPO_ROOT/scripts/podman/common.sh"
 # shellcheck source=scripts/podman/targets.sh
 source "$REPO_ROOT/scripts/podman/targets.sh"
+
+# Where `save` and `load` keep the images: shared storage, outside the repo (and the build context).
+IMAGE_TARBALL="${SPINDLE_PODMAN_IMAGES:-$(cd "$REPO_ROOT/../.." && pwd)/tmp/podman-images/spindle-images.tar}"
 
 #==============================================================================
 # Target Registry Helpers (data lives in scripts/podman/targets.sh)
@@ -62,9 +67,32 @@ image_exists() {
     podman images --format "{{.Repository}}" 2>/dev/null | grep -q "^localhost/$1\$"
 }
 
+# The image a target produces: a built one lives under localhost/, a pulled one keeps its reference.
+image_ref() {
+    local t="$1"
+    if [[ -n "${T_PULL[$t]:-}" ]]; then
+        printf '%s\n' "${T_PULL[$t]}"
+    else
+        printf 'localhost/%s:latest\n' "${T_IMAGE[$t]}"
+    fi
+}
+
+target_image_exists() {
+    local t="$1"
+    if [[ -n "${T_PULL[$t]:-}" ]]; then
+        podman image exists "${T_PULL[$t]}" 2>/dev/null
+    else
+        image_exists "${T_IMAGE[$t]}"
+    fi
+}
+
 # Fills BUILD_CMD with the podman build command for target $1.
 build_command() {
     local t="$1"
+    if [[ -n "${T_PULL[$t]:-}" ]]; then
+        BUILD_CMD=(podman pull "${T_PULL[$t]}")
+        return 0
+    fi
     local context="$REPO_ROOT/${T_CONTEXT[$t]:-}"
     context="${context%/}"
     # T_BUILD_ARGS and LC_CERT_BUILD_MOUNT are intentionally word-split.
@@ -159,22 +187,25 @@ cmd_status() {
     local has_images=false
 
     for target in "${TARGETS[@]}"; do
-        local image_name="localhost/${T_IMAGE[$target]}"
+        local image_name missing="not built"
+        image_name=$(image_ref "$target")
+        [[ -n "${T_PULL[$target]:-}" ]] && missing="not pulled"
 
-        if image_exists "${T_IMAGE[$target]}"; then
+        if target_image_exists "$target"; then
             has_images=true
             local image_id size created
-            image_id=$(podman images --format "{{.ID}}" "$image_name:latest" 2>/dev/null | head -1)
-            size=$(podman images --format "{{.Size}}" "$image_name:latest" 2>/dev/null | head -1)
-            created=$(podman images --format "{{.CreatedAt}}" "$image_name:latest" 2>/dev/null | head -1)
+            image_id=$(podman images --format "{{.ID}}" "$image_name" 2>/dev/null | head -1)
+            size=$(podman images --format "{{.Size}}" "$image_name" 2>/dev/null | head -1)
+            created=$(podman images --format "{{.CreatedAt}}" "$image_name" 2>/dev/null | head -1)
 
             echo -e "  ${GREEN}✓${RESET} ${BOLD}$target${RESET}: $size (created: $created)"
 
             if $verbose; then
+                echo "      Image: $image_name"
                 echo "      Image ID: $image_id"
             fi
         else
-            echo -e "  ${YELLOW}○${RESET} $target: not built"
+            echo -e "  ${YELLOW}○${RESET} $target: $missing"
         fi
     done
 
@@ -182,13 +213,20 @@ cmd_status() {
         echo -e "  ${YELLOW}No images built yet${RESET}"
     fi
 
+    echo -e "\n${BOLD}Image tarball:${RESET}"
+    if [[ -f "$IMAGE_TARBALL" ]]; then
+        echo "  $IMAGE_TARBALL: $(human_bytes "$(stat -c %s "$IMAGE_TARBALL")"), saved $(date -r "$IMAGE_TARBALL" "+%Y-%m-%d %H:%M")"
+    else
+        echo "  none yet ($IMAGE_TARBALL); create with: $0 save"
+    fi
+
     # Check running containers
     echo -e "\n${BOLD}Running Containers:${RESET}"
     local container_count
-    container_count=$(podman ps --format "{{.Names}}" 2>/dev/null | grep -c "spindle" || true)
+    container_count=$(podman ps --format "{{.Names}}" 2>/dev/null | grep -cE "spindle|slurm" || true)
 
     if [[ $container_count -gt 0 ]]; then
-        podman ps --filter "name=spindle" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
+        podman ps --filter "name=spindle" --filter "name=slurm" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
     else
         echo "  None"
     fi
@@ -286,29 +324,29 @@ cmd_build() {
         esac
     done
 
-    if [[ ! -f "$REPO_ROOT/${T_DOCKERFILE[$target]}" ]]; then
-        echo -e "${RED}Error:${RESET} Dockerfile not found: $REPO_ROOT/${T_DOCKERFILE[$target]}"
+    if [[ -z "${T_PULL[$target]:-}" && ! -f "$REPO_ROOT/${T_DOCKERFILE[$target]:-}" ]]; then
+        echo -e "${RED}Error:${RESET} Dockerfile not found: $REPO_ROOT/${T_DOCKERFILE[$target]:-<unset>}"
         return 1
     fi
 
     $dry_run || init_state
 
-    local prereq="${T_PREREQ[$target]:-}"
-    if [[ -n "$prereq" ]]; then
+    local prereq
+    for prereq in ${T_PREREQ[$target]:-}; do
         if $dry_run; then
-            echo "# prerequisite '$prereq' (built only if its image is missing):"
+            echo "# prerequisite '$prereq' (only if its image is missing):"
             cmd_build "$prereq" --dry-run || return 1
-        elif image_exists "${T_IMAGE[$prereq]}"; then
-            echo -e "${GREEN}✓${RESET} $prereq image already exists\n"
+        elif target_image_exists "$prereq"; then
+            echo -e "${GREEN}✓${RESET} $prereq image already present\n"
         else
-            echo -e "${YELLOW}→${RESET} $prereq image not found, building it first...\n"
+            echo -e "${YELLOW}→${RESET} $prereq image not found, getting it first...\n"
             if ! cmd_build "$prereq"; then
-                echo -e "${RED}✗${RESET} Failed to build $prereq image"
+                echo -e "${RED}✗${RESET} Failed to get $prereq image"
                 return 1
             fi
             echo ""
         fi
-    fi
+    done
 
     if $dry_run; then
         echo "# build $target:"
@@ -373,10 +411,11 @@ cmd_test() {
     local target="${1:-}"
     local repeat=1
     local background=false
+    local script_args=()
 
     if [[ -z "$target" ]]; then
         echo "Error: test target required"
-        echo "Usage: $0 test <$(testable_list)> [--repeat N] [--background]"
+        echo "Usage: $0 test <$(testable_list)> [--repeat N] [--background] [--id N] [--keep] [--debug N] [--timeout S]"
         return 1
     fi
     shift
@@ -391,6 +430,10 @@ cmd_test() {
         case "$1" in
             --repeat|-r) repeat="$2"; shift 2 ;;
             --background|-b) background=true; shift ;;
+            --id) script_args=("${2:?--id needs a number}"); shift 2 ;;
+            --keep) export CLUSTER_KEEP=1; shift ;;
+            --debug) export SPINDLE_DEBUG="${2:?--debug needs a level}"; shift 2 ;;
+            --timeout) export CLUSTER_TEST_TIMEOUT="${2:?--timeout needs seconds}"; shift 2 ;;
             *) echo "Unknown option: $1"; return 1 ;;
         esac
     done
@@ -404,8 +447,8 @@ cmd_test() {
         return 1
     fi
 
-    if ! image_exists "${T_IMAGE[$target]}"; then
-        echo -e "${RED}Error:${RESET} Image 'localhost/${T_IMAGE[$target]}' not found"
+    if ! target_image_exists "$target"; then
+        echo -e "${RED}Error:${RESET} Image '$(image_ref "$target")' not found"
         echo "Build it first with: $0 build $target"
         return 1
     fi
@@ -417,13 +460,14 @@ cmd_test() {
     local log_dir
     log_dir=$(log_dir_for_run)
     mkdir -p "$log_dir"
+    export SPINDLE_PODMAN_LOG_DIR="$log_dir"
     local log_file="$log_dir/test-${target}.log"
 
     if $background; then
         echo "Starting background test..."
         echo "Log: $log_file"
 
-        bash "$test_script" > "$log_file" 2>&1 &
+        bash "$test_script" ${script_args[@]+"${script_args[@]}"} > "$log_file" 2>&1 &
         local pid=$!
 
         echo "Background job PID: $pid"
@@ -441,7 +485,7 @@ cmd_test() {
                 echo -e "${BOLD}Run $i of $repeat${RESET}"
             fi
 
-            if bash "$test_script" 2>&1 | tee -a "$log_file"; then
+            if bash "$test_script" ${script_args[@]+"${script_args[@]}"} 2>&1 | tee -a "$log_file"; then
                 if [[ $repeat -gt 1 ]]; then
                     echo -e "${GREEN}✓${RESET} Run $i passed\n"
                 fi
@@ -489,6 +533,31 @@ cmd_test() {
     fi
 }
 
+# Removes the networks the test scripts create (<prefix>-<id>-net).  $1 = force.
+remove_test_networks() {
+    local force="$1" prefix network
+    for prefix in "${KNOWN_NETWORK_PREFIXES[@]}"; do
+        while read -r network; do
+            [[ -n "$network" ]] || continue
+            echo "  Removing network: $network"
+            if [[ "$force" == true ]]; then
+                podman network rm -f "$network" >/dev/null 2>&1 || true
+            else
+                podman network rm "$network" >/dev/null 2>&1 || true
+            fi
+        done < <(podman network ls --format '{{.Name}}' 2>/dev/null | grep "^${prefix}-")
+    done
+}
+
+# The cluster helper starts one aardvark-dns by hand (see scripts/podman/cluster.sh); stop it
+# when nothing is left using it.
+stop_dns_server() {
+    if pgrep -u "$(id -u)" -x aardvark-dns >/dev/null 2>&1; then
+        echo "Stopping aardvark-dns"
+        pkill -u "$(id -u)" -x aardvark-dns 2>/dev/null || true
+    fi
+}
+
 #==============================================================================
 # Cleanup Command
 #==============================================================================
@@ -525,14 +594,9 @@ cmd_cleanup() {
         echo "No running containers to clean"
     fi
 
-    # Clean up slurm test networks
     echo "Cleaning up networks..."
-    for network in "${KNOWN_NETWORKS[@]}"; do
-        if podman network exists "$network" 2>/dev/null; then
-            echo "  Removing network: $network"
-            podman network rm "$network" 2>/dev/null || true
-        fi
-    done
+    remove_test_networks false
+    stop_dns_server
 
     # Clean up dangling resources
     echo "Cleaning dangling resources..."
@@ -550,19 +614,160 @@ cmd_defenestrate() {
         podman rm -f "$container" 2>/dev/null || true
     done
 
-    # Remove specific slurm test networks
-    for network in "${KNOWN_NETWORKS[@]}"; do
-        if podman network exists "$network" 2>/dev/null; then
-            echo "Removing network: $network"
-            podman network rm -f "$network" 2>/dev/null || true
-        fi
-    done
+    remove_test_networks true
+    stop_dns_server
 
     # Prune everything
     podman container prune -f 2>/dev/null || true
     podman network prune -f 2>/dev/null || true
 
     echo -e "\n${GREEN}✓${RESET} All resources destroyed"
+}
+
+#==============================================================================
+# Save / Load Commands
+#==============================================================================
+# Image storage is node-local (/var/tmp), so images vanish with an allocation.  save writes them
+# to one tarball on the shared filesystem; load reads it back on a new node.
+
+# Total size in bytes of the named images (0 for any that cannot be inspected).
+images_size_bytes() {
+    local total=0 img sz
+    for img in "$@"; do
+        sz=$(podman image inspect --format '{{.Size}}' "$img" 2>/dev/null || true)
+        [[ "$sz" =~ ^[0-9]+$ ]] || sz=0
+        total=$((total + sz))
+    done
+    echo "$total"
+}
+
+human_bytes() {
+    awk -v b="$1" 'BEGIN { split("B KB MB GB TB", u); i = 1; while (b >= 1024 && i < 5) { b /= 1024; i++ } printf "%.1f %s", b, u[i] }'
+}
+
+cmd_save() {
+    local dry_run=false force=false dest="$IMAGE_TARBALL"
+    local targets=() images=() skipped=() t
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-n) dry_run=true; shift ;;
+            --force|-f)   force=true; shift ;;
+            --output|-o)  dest="${2:-}"; shift 2 || true ;;
+            -*) echo "Unknown option: $1"; return 1 ;;
+            *)  targets+=("$1"); shift ;;
+        esac
+    done
+    [[ -n "$dest" ]] || { echo "Error: --output needs a path"; return 1; }
+    [[ ${#targets[@]} -gt 0 ]] || targets=("${TARGETS[@]}")
+
+    for t in "${targets[@]}"; do
+        is_target "$t" || { echo -e "${RED}Error:${RESET} Unknown target '$t'"; echo "Available targets: $(target_list)"; return 1; }
+        if target_image_exists "$t"; then
+            images+=("$(image_ref "$t")")
+        else
+            skipped+=("$t")
+        fi
+    done
+
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}Not saved (image not present on this node):${RESET} ${skipped[*]}"
+    fi
+    if [[ ${#images[@]} -eq 0 ]]; then
+        echo -e "${RED}Error:${RESET} none of the requested images exist on this node"
+        return 1
+    fi
+
+    local limit_gb="${SAVE_MAX_GB:-8}"
+    local total limit
+    total=$(images_size_bytes "${images[@]}")
+    limit=$((limit_gb * 1024 * 1024 * 1024))
+    echo "Images to save:"
+    printf '  %s\n' "${images[@]}"
+    echo "Total image size: $(human_bytes "$total")  (the tarball shares layers, so it will usually be smaller)"
+    echo "Destination:      $dest"
+
+    if (( total > limit )) && ! $force; then
+        echo -e "${RED}Refusing:${RESET} images total $(human_bytes "$total"), above the ${limit_gb} GB limit."
+        echo "A runaway tarball once grew to hundreds of GB.  Check 'podman images', or override with"
+        echo "--force or SAVE_MAX_GB=<n>."
+        return 1
+    fi
+
+    local cmd=(podman save --multi-image-archive -o "$dest.partial.$$" "${images[@]}")
+    if $dry_run; then
+        printf '+'; printf ' %q' "${cmd[@]}"; echo
+        echo "+ mv $dest.partial.$$ $dest"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    local start=$SECONDS
+    if ! "${cmd[@]}"; then
+        rm -f -- "$dest.partial.$$"
+        echo -e "${RED}✗${RESET} podman save failed"
+        log_metric "save" "images" "$((SECONDS - start))s" "failed"
+        return 1
+    fi
+    mv -f -- "$dest.partial.$$" "$dest"
+
+    local bytes secs=$((SECONDS - start))
+    bytes=$(stat -c %s "$dest")
+    echo -e "${GREEN}✓${RESET} Saved ${#images[@]} images to $dest: $(human_bytes "$bytes") in ${secs}s"
+    if (( bytes > limit )); then
+        echo -e "${YELLOW}⚠${RESET}  Tarball exceeds ${limit_gb} GB"
+    fi
+    log_metric "save" "images" "${secs}s" "success"
+}
+
+cmd_load() {
+    local dry_run=false in="$IMAGE_TARBALL"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-n) dry_run=true; shift ;;
+            --input|-i)   in="${2:-}"; shift 2 || true ;;
+            *) echo "Unknown option: $1"; return 1 ;;
+        esac
+    done
+    [[ -n "$in" ]] || { echo "Error: --input needs a path"; return 1; }
+
+    if [[ ! -f "$in" ]]; then
+        echo -e "${RED}Error:${RESET} no tarball at $in"
+        echo "Create one on a node that has the images with: $0 save"
+        return 1
+    fi
+
+    local bytes
+    bytes=$(stat -c %s "$in")
+    echo "Loading $in ($(human_bytes "$bytes"))"
+    if $dry_run; then
+        echo "+ podman load -i $in"
+        return 0
+    fi
+
+    local start=$SECONDS
+    if ! podman load -i "$in"; then
+        echo -e "${RED}✗${RESET} podman load failed"
+        log_metric "load" "images" "$((SECONDS - start))s" "failed"
+        return 1
+    fi
+    local secs=$((SECONDS - start)) t
+    echo -e "${GREEN}✓${RESET} Loaded in ${secs}s"
+    log_metric "load" "images" "${secs}s" "success"
+
+    for t in "${TARGETS[@]}"; do
+        if target_image_exists "$t"; then
+            echo -e "  ${GREEN}✓${RESET} $t"
+        else
+            echo -e "  ${YELLOW}○${RESET} $t: not in the tarball"
+        fi
+    done
+}
+
+cmd_env() {
+    echo "export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+    echo "# eval \"\$($0 env)\" to give another shell the same podman state directory"
 }
 
 #==============================================================================
@@ -605,54 +810,249 @@ cmd_logs() {
 # Help
 #==============================================================================
 
-show_help() {
+cmd_diagnose() {
+    local what="${1:-}"
+    shift || true
+    case "$what" in
+        dns)
+            # probe-dns.sh creates a throwaway network and two containers; see its header.
+            bash "$REPO_ROOT/scripts/podman/probe-dns.sh" "$@"
+            ;;
+        hang|snapshot)
+            # A fresh shell: the cluster helpers are not written to run under `set -e`.
+            bash -c 'source "$1/scripts/podman/cluster.sh"; cluster_snapshot "$2" "" diagnose' _ "$REPO_ROOT" "${1:-slurm-srun-1}"
+            ;;
+        ""|help)
+            help_diagnose
+            ;;
+        *)
+            echo "Unknown diagnose topic: $what"
+            help_diagnose
+            return 1
+            ;;
+    esac
+}
+
+#==============================================================================
+# Help
+#==============================================================================
+
+help_status() {
     cat <<'EOF'
-spindle-podman - Consolidated Spindle podman operations
+spindle-podman status [--verbose|-v]
+
+  Show which images are built, which containers are running, the last test result per target,
+  the image tarball, and how many log sessions exist.  Reads local state only; changes nothing.
+EOF
+}
+
+help_build() {
+    cat <<'EOF'
+spindle-podman build <target> [--background|-b] [--dry-run|-n]
+
+  Build the container image for <target> (see Targets), or for a pulled target (mariadb) pull
+  it.  A target's prerequisites are fetched first when their images are missing.  Output goes to
+  .podman-logs/<run>/build-<target>.log.
+  A build slower than the target's baseline prints a warning (baselines are in targets.sh).
+
+  --dry-run, -n     Print the exact commands, prerequisite included, and run nothing.
+  --background, -b  Build in the background; progress is in the log file.
+EOF
+}
+
+help_test() {
+    cat <<'EOF'
+spindle-podman test <target> [options]
+
+  Run the testsuite for <target> in containers and record the result (status shows it).
+  Cluster targets bring up a Slurm cluster, run the tests, and tear it down, always.
+
+  --repeat N, -r N  Run N times; stop at the first failure.
+  --background, -b  Run in the background.
+  --id N            Name the cluster slurm-srun-N, so several runs can coexist (default 1).
+  --keep            Leave the cluster running afterwards (sets CLUSTER_KEEP=1).
+  --debug N         Run Spindle at SPINDLE_DEBUG=N; debug logs are collected on a hang.
+  --timeout S       Declare a hang when no new test has started for S seconds (default 600;
+                    0 disables).  Then a snapshot is taken and the run aborted (exit 124).
+
+  Needs the target's image and, for cluster targets, the mariadb image on this node
+  (see: build mariadb, save, load).  Output goes to .podman-logs/<run>/test-<target>.log.
+EOF
+}
+
+help_cleanup() {
+    cat <<'EOF'
+spindle-podman cleanup [--force|-f]
+
+  Stop and remove every container whose name contains "spindle" or "slurm", remove the test
+  networks, prune stopped containers, and stop aardvark-dns.  Gentle by default (10 s per
+  container); --force skips the wait.  Containers that no longer answer (see: diagnose hang)
+  can ignore this; defenestrate is the blunt tool.
+EOF
+}
+
+help_defenestrate() {
+    cat <<'EOF'
+spindle-podman defenestrate
+
+  Remove all spindle/slurm containers immediately, remove the test networks, prune networks
+  and stop aardvark-dns.  No waiting.  Use when cleanup is stuck.
+EOF
+}
+
+help_logs() {
+    cat <<'EOF'
+spindle-podman logs [N]
+
+  List the last N (default 5) log sessions under .podman-logs/ with their sizes and whether they
+  mention errors.  Snapshots from hung runs are in snapshot-* directories there.
+EOF
+}
+
+help_save() {
+    cat <<'EOF'
+spindle-podman save [target...] [--dry-run|-n] [--force|-f] [--output|-o PATH]
+
+  Save images into ONE tarball on shared storage, so a new node can `load` them instead of
+  rebuilding (about 15 minutes).  With no targets, saves every image present on this node,
+  built or pulled.  Images not present are skipped and listed.
+
+  The tarball is written under a temporary name and renamed on success.  Save refuses when the
+  images total more than SAVE_MAX_GB (default 8) unless --force: a tarball once grew to hundreds
+  of GB unnoticed.
+
+  Default path: $SPINDLE_PODMAN_IMAGES, else <workspace>/tmp/podman-images/spindle-images.tar
+EOF
+}
+
+help_load() {
+    cat <<'EOF'
+spindle-podman load [--dry-run|-n] [--input|-i PATH]
+
+  Load the tarball made by `save` into this node's (node-local) image storage, then list which
+  targets are now present.  Run it first on every new allocation.
+EOF
+}
+
+help_env() {
+    cat <<'EOF'
+spindle-podman env
+
+  Print `export XDG_RUNTIME_DIR=...`.  podman keeps per-container state under that directory;
+  spindle-podman pins it to a fixed node-local path (see scripts/podman/env.sh).  A podman
+  command typed by hand in another shell must use the same one, or exec/stop/rm on running
+  containers can fail:
+
+      eval "$(./spindle-podman env)"
+EOF
+}
+
+help_diagnose() {
+    cat <<'EOF'
+spindle-podman diagnose <topic> [args]
+
+  dns                 Create a throwaway network and two containers and test, layer by layer,
+                      whether container names resolve (IP routing, the resolver, aardvark-dns,
+                      names, the /etc/hosts fallback).  PROBE_TIMEOUT=N sets seconds per check.
+                      Needs the slurm-base image (or pass another image name).
+  hang [prefix]       Collect evidence from a cluster that looks stuck (default slurm-srun-1):
+                      processes with kernel wait channels, sockets, slurm state, Spindle debug
+                      logs, gdb backtraces, podman/crun state.  Passwords are redacted.
+                      Written to .podman-logs/snapshot-<prefix>-<time>/.  Run it from a shell
+                      with the same environment as the one that started the cluster
+                      (eval "$(./spindle-podman env)"); a test started with `test` takes this
+                      snapshot by itself when it hangs.  Needs a test run with --keep to still exist.
+EOF
+}
+
+help_command() {
+    case "${1:-}" in
+        status|st)          help_status ;;
+        build|b)            help_build ;;
+        test|t)             help_test ;;
+        cleanup|clean)      help_cleanup ;;
+        defenestrate|nuke)  help_defenestrate ;;
+        logs|log)           help_logs ;;
+        save)               help_save ;;
+        load)               help_load ;;
+        env)                help_env ;;
+        diagnose)           help_diagnose ;;
+        *) echo "No help for '$1'.  Commands: status build test cleanup defenestrate logs save load env diagnose"
+           return 1 ;;
+    esac
+}
+
+show_help() {
+    if [[ -n "${1:-}" ]]; then
+        help_command "$1"
+        return
+    fi
+    cat <<'EOF'
+spindle-podman - build and test Spindle in rootless podman containers
 
 Usage:
   spindle-podman <command> [options]
+  spindle-podman help <command>         details, options and environment for one command
 
 Commands:
-  status [--verbose]              Show current state of images, containers, tests
-  build <target> [options]        Build a container image
-  test <target> [options]         Run tests in a container
-  cleanup [--force]               Clean up containers (gentle by default)
-  defenestrate                    Nuclear cleanup (kill -9 everything)
-  logs [N]                        Show recent log sessions (default: 5)
-  help                            Show this help
+  status             Show images, containers, test results, tarball
+  build <target>     Build a container image
+  test <target>      Run the testsuite in containers
+  save               Save images to a tarball on shared storage
+  load               Load that tarball on a new node
+  diagnose <topic>   dns: test container name resolution; hang: collect evidence from a stuck cluster
+  env                Print the XDG_RUNTIME_DIR export, for podman commands typed by hand
+  logs [N]           Show recent log sessions
+  cleanup            Remove containers and networks (gentle)
+  defenestrate       Remove everything, immediately
 
-Build Options:
-  --background, -b                Run in background
-  --dry-run, -n                   Print the commands without running them
+Typical workflows:
+  First time on a node, nothing built (about 15 minutes):
+      ./spindle-podman build slurm-srun       # first gets mariadb and slurm-base, if missing
+      ./spindle-podman save                   # so the next node can skip all of this
+      ./spindle-podman test slurm-srun
 
-Test Options:
-  --repeat N, -r N                Run tests N times
-  --background, -b                Run in background
+  New allocation, tarball already saved:
+      ./spindle-podman load
+      ./spindle-podman test slurm-srun
+
+  A test hangs or fails:
+      ./spindle-podman test slurm-srun --keep --debug 3      # a hang is detected and snapshotted
+      ./spindle-podman logs                                  # find snapshot-* directories
+      ./spindle-podman diagnose hang                         # on a cluster left running by --keep
+      ./spindle-podman cleanup                               # when finished
+
+  Checking a change to the build recipe without building:
+      ./spindle-podman build slurm-srun --dry-run
 
 Targets:
 EOF
     local t suffix
     for t in "${TARGETS[@]}"; do
         suffix=""
-        [[ -n "${T_TEST[$t]:-}" ]] || suffix=" (build only)"
-        printf '  %-30s  %s%s\n' "$t" "${T_DESC[$t]}" "$suffix"
+        if [[ -n "${T_PULL[$t]:-}" ]]; then
+            suffix=" (pulled, not built)"
+        elif [[ -z "${T_TEST[$t]:-}" ]]; then
+            suffix=" (build only)"
+        fi
+        printf '  %-12s  %s%s\n' "$t" "${T_DESC[$t]}" "$suffix"
     done
     cat <<'EOF'
 
-Examples:
-  ./spindle-podman status
-  ./spindle-podman build serial
-  ./spindle-podman build serial --dry-run
-  ./spindle-podman test serial --repeat 10
-  ./spindle-podman cleanup
-  ./spindle-podman logs 3
+Environment (each is also described under the command that uses it):
+  SPINDLE_PODMAN_IMAGES        tarball path for save/load
+  SAVE_MAX_GB                  save refuses above this many GB (default 8)
+  SPINDLE_PODMAN_RUNTIME_DIR   where podman keeps runtime state (default /var/tmp/$USER/xdg-runtime)
+  CLUSTER_WORKERS              Slurm workers per cluster (default 4)
+  CLUSTER_KEEP=1               leave the cluster running after a test (same as test --keep)
+  CLUSTER_TEST_TIMEOUT         seconds without a new test before a hang is declared (default 600)
+  CLUSTER_MARIADB_IMAGE        database image (default: the mariadb target's reference)
+  SPINDLE_DEBUG=N              Spindle debug level in the testsuite (same as test --debug)
+  PROBE_TIMEOUT                seconds per check in diagnose dns (default 5)
 
-State and logs:
-  State:   .podman-state.json
-  Metrics: .podman-metrics.log
-  Logs:    .podman-logs/
-
-Targets are defined in scripts/podman/targets.sh.
+Files:
+  .podman-state.json   what is built and the last results      .podman-metrics.log  timings
+  .podman-logs/        one directory per run, plus snapshot-*  scripts/podman/targets.sh  targets
 EOF
 }
 
@@ -688,8 +1088,24 @@ main() {
             shift
             cmd_logs "$@"
             ;;
+        save)
+            shift
+            cmd_save "$@"
+            ;;
+        load)
+            shift
+            cmd_load "$@"
+            ;;
+        env)
+            cmd_env
+            ;;
+        diagnose|diag)
+            shift
+            cmd_diagnose "$@"
+            ;;
         help|--help|-h)
-            show_help
+            shift
+            show_help "$@"
             ;;
         *)
             echo "Unknown command: $command"

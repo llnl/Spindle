@@ -1,0 +1,40 @@
+ClusterName=linux
+ControlMachine=${SLURM_HEAD_NODE}
+ControlAddr=${SLURM_HEAD_NODE}
+SlurmUser=slurm
+SlurmctldPort=6817
+SlurmdPort=6818
+AuthType=auth/munge
+StateSaveLocation=/var/lib/slurmd
+SlurmdSpoolDir=/var/spool/slurmd
+SwitchType=switch/none
+MpiDefault=none
+SlurmctldPidFile=/var/run/slurmd/slurmctld.pid
+SlurmdPidFile=/var/run/slurmd/slurmd.pid
+ProctrackType=proctrack/linuxproc
+# TaskPlugin=task/affinity disabled - causes "Operation not permitted" in rootless podman
+TaskPlugin=task/none
+ReturnToService=2
+SlurmctldTimeout=300
+SlurmdTimeout=300
+InactiveLimit=0
+MinJobAge=300
+KillWait=30
+Waittime=0
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core_Memory
+SlurmctldDebug=3
+SlurmctldLogFile=/var/log/slurm/slurmctld.log
+SlurmdDebug=3
+SlurmdLogFile=/var/log/slurm/slurmd.log
+JobCompType=jobcomp/filetxt
+JobCompLoc=/var/log/slurm/jobcomp.log
+JobAcctGatherType=jobacct_gather/linux
+JobAcctGatherFrequency=30
+AccountingStorageType=accounting_storage/slurmdbd
+AccountingStorageHost=${SLURM_DB_HOST}
+AccountingStoragePort=6819
+# NodeName entries are generated at runtime by entrypoint based on $workers and $SLURM_NODE_PREFIX
+PartitionName=debug Nodes=ALL Default=YES MaxTime=INFINITE State=UP
+

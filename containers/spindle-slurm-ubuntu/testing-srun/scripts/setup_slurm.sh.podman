@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+mkdir -p /etc/slurm /etc/sysconfig/slurm /var/spool/slurmd /var/spool/slurmctld /var/run/slurmd /var/run/slurmdbd /var/lib/slurmd /var/log/slurm
+touch /var/lib/slurmd/node_state /var/lib/slurmd/front_end_state /var/lib/slurmd/job_state /var/lib/slurmd/resv_state /var/lib/slurmd/trigger_state /var/lib/slurmd/assoc_mgr_state /var/lib/slurmd/assoc_usage /var/lib/slurmd/qos_usage /var/lib/slurmd/fed_mgr_state
+cp "/home/${SLURM_USER}"/slurm.conf.template /etc/slurm/slurm.conf.template
+cp "/home/${SLURM_USER}"/slurmdbd.conf.template /etc/slurm/slurmdbd.conf.template
+cp "/home/${SLURM_USER}"/cgroup.conf /etc/slurm/cgroup.conf
+
+# Spindle's configure runs `srun --version` to choose how it launches its daemons: Slurm >= 23.11
+# gets --external-launcher, anything older (or an unreadable version) gets a mode that takes every
+# CPU of the job and starves the application.  srun cannot print its version without a slurm.conf,
+# and containers generate theirs at start-up (entrypoint.sh.podman), so without this file configure
+# silently falls back to the wrong mode (found 13Nov2026: "[: -gt: unary operator expected").
+# The generated file replaces this one at run time; the CI image ships a real slurm.conf instead.
+# shellcheck disable=SC2016  # the ${...} are literal placeholders in the template
+sed -e 's/\${SLURM_HEAD_NODE}/slurm-head/g' \
+    -e 's/\${SLURM_DB_HOST}/slurm-db/g' \
+    /etc/slurm/slurm.conf.template > /etc/slurm/slurm.conf
+echo "NodeName=slurm-node-1 NodeAddr=slurm-node-1 CPUs=3 RealMemory=1000 State=UNKNOWN" >> /etc/slurm/slurm.conf
+chown -R slurm:slurm /etc/slurm /etc/sysconfig/slurm /var/spool/slurmd /var/spool/slurmctld /var/run/slurmd /var/run/slurmdbd /var/lib/slurmd /var/log/slurm
+# Templates should be readable by slurm (will be used to generate configs at runtime)
+chmod 644 /etc/slurm/slurm.conf.template /etc/slurm/slurmdbd.conf.template /etc/slurm/slurm.conf
+# cgroup.conf should be world-readable (needed by slurmuser for salloc/srun)
+chmod 644 /etc/slurm/cgroup.conf
