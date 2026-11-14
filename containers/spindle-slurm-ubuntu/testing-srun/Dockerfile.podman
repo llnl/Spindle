@@ -1,0 +1,61 @@
+FROM spindle-slurm-base:latest
+ARG replicas=4
+ENV workers=${replicas}
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+ENV SPINDLE_TEST_CONTAINER=1
+
+ARG BUILD_ROOT=containers/spindle-slurm-ubuntu/testing-srun
+
+# Slurm daemons run as $SLURM_USER
+ARG SLURM_USER=slurm
+
+# Applications run as $USER
+ARG USER=slurmuser
+ARG UID=1001
+
+# Set up the Slurm install already present in the base image
+USER root
+COPY ${BUILD_ROOT}/scripts/setup_slurm.sh.podman /setup_slurm.sh
+COPY ${BUILD_ROOT}/conf/slurm.conf.template.podman /home/${SLURM_USER}/slurm.conf.template
+COPY ${BUILD_ROOT}/conf/slurmdbd.conf.template.podman /home/${SLURM_USER}/slurmdbd.conf.template
+COPY ${BUILD_ROOT}/conf/cgroup.conf /home/${SLURM_USER}/cgroup.conf
+RUN chmod +x /setup_slurm.sh && /setup_slurm.sh
+
+USER ${USER}
+WORKDIR /home/${USER}
+
+# Copy the Spindle repo into the container and build it
+RUN mkdir -p /home/${USER}/Spindle
+COPY . /home/${USER}/Spindle
+
+# Fix permissions on Spindle source
+USER root
+RUN chmod -R u+rwX /home/${USER}/Spindle && \
+    chown -R ${USER}:${USER} /home/${USER}/Spindle
+
+# Copy and prepare build script
+COPY ${BUILD_ROOT}/scripts/build_spindle.sh /home/${USER}/build_spindle.sh
+RUN chmod +rx /home/${USER}/build_spindle.sh && \
+    chown ${USER}:${USER} /home/${USER}/build_spindle.sh
+
+# Build Spindle as user
+USER ${USER}
+RUN bash ./build_spindle.sh
+
+# Fail the build if Spindle was configured for the wrong srun launch mode (see the script).
+COPY ${BUILD_ROOT}/scripts/check_launch_mode.sh.podman /check_launch_mode.sh
+USER root
+RUN chmod +rx /check_launch_mode.sh
+RUN /check_launch_mode.sh srun /home/${USER}/Spindle-build
+
+# Copy entrypoint as root
+USER root
+COPY ${BUILD_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint.sh
+RUN chmod +rx /home/${USER}/entrypoint.sh && \
+    chown ${USER}:${USER} /home/${USER}/entrypoint.sh
+
+USER ${USER}
+ENV PATH /home/${USER}/Spindle-inst/bin:$PATH
+
+ENTRYPOINT /bin/bash ./entrypoint.sh

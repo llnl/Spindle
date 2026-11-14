@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# Entrypoint for the Slurm rshlaunch containers: start sshd, then hand over to the entrypoint
+# shared with the srun image (munged, config rendering, and the daemon chosen by SLURM_ROLE).
+#
+# sshd logs to /tmp/sshd.log; `spindle-podman diagnose hang` includes its tail.
+
+echo "Starting sshd..."
+sudo mkdir -p /run/sshd
+sudo bash -c 'ulimit -c unlimited; /usr/sbin/sshd -E /tmp/sshd.log -o LogLevel=VERBOSE'
+
+exec /bin/bash ./entrypoint-common.sh

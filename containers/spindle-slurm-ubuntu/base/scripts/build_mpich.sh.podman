@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+mkdir mpich
+pushd mpich
+# Add --no-same-owner for rootless podman compatibility
+wget -O - https://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz | tar xvz --no-same-owner --strip-components 1
+mkdir -p build
+pushd build
+../configure --prefix=/usr --disable-fortran --with-slurm=/usr/include/slurm
+make -j$(nproc) install
+popd
+popd
+rm -rf mpich

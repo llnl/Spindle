@@ -1,0 +1,79 @@
+FROM spindle-slurm-base:latest
+ARG replicas=4
+ENV workers=${replicas}
+ENV TMPDIR=/tmp
+RUN echo 'TMPDIR="/tmp"' >> /etc/environment
+ENV SPINDLE_TEST_CONTAINER=1
+
+# Slurm "rshlaunch" flavor: Spindle starts its daemons over ssh.  Files for this flavor are in
+# testing/ (devel's, shared with the GitHub workflow, plus our .podman entrypoint wrapper).  The
+# Slurm templates and setup are the same as the srun image's, so they are used from there.
+ARG BUILD_ROOT=containers/spindle-slurm-ubuntu/testing
+ARG SHARED_ROOT=containers/spindle-slurm-ubuntu/testing-srun
+
+# Slurm daemons run as $SLURM_USER
+ARG SLURM_USER=slurm
+
+# Applications run as $USER
+ARG USER=slurmuser
+ARG UID=1001
+
+# Set up the Slurm install already present in the base image
+USER root
+COPY ${SHARED_ROOT}/scripts/setup_slurm.sh.podman /setup_slurm.sh
+COPY ${SHARED_ROOT}/conf/slurm.conf.template.podman /home/${SLURM_USER}/slurm.conf.template
+COPY ${SHARED_ROOT}/conf/slurmdbd.conf.template.podman /home/${SLURM_USER}/slurmdbd.conf.template
+COPY ${SHARED_ROOT}/conf/cgroup.conf /home/${SLURM_USER}/cgroup.conf
+RUN chmod +x /setup_slurm.sh && /setup_slurm.sh
+
+# Passwordless ssh between the nodes, as Spindle's rsh launch needs.  COPY makes root-owned files
+# that the unprivileged user could not read in rootless podman, hence the chown.
+COPY ${BUILD_ROOT}/conf/ssh_config /home/${USER}/ssh_config
+COPY ${BUILD_ROOT}/scripts/setup_ssh.sh /home/${USER}/setup_ssh.sh
+RUN chmod +rx /home/${USER}/setup_ssh.sh && \
+    chown ${USER}:${USER} /home/${USER}/ssh_config /home/${USER}/setup_ssh.sh
+USER ${USER}
+WORKDIR /home/${USER}
+RUN ./setup_ssh.sh
+
+# Every container shares these host keys, so none of them is a stranger to the others.
+USER root
+RUN ssh-keygen -A && \
+    chmod 644 /etc/ssh/ssh_host_*_key.pub && \
+    chmod 600 /etc/ssh/ssh_host_*_key
+
+# Copy the Spindle repo into the container and build it
+USER ${USER}
+RUN mkdir -p /home/${USER}/Spindle
+COPY . /home/${USER}/Spindle
+
+# Fix permissions on Spindle source
+USER root
+RUN chmod -R u+rwX /home/${USER}/Spindle && \
+    chown -R ${USER}:${USER} /home/${USER}/Spindle
+
+# devel's build script configures with --with-rsh-launch --with-rsh-cmd=/usr/bin/ssh
+COPY ${BUILD_ROOT}/scripts/build_spindle.sh /home/${USER}/build_spindle.sh
+RUN chmod +rx /home/${USER}/build_spindle.sh && \
+    chown ${USER}:${USER} /home/${USER}/build_spindle.sh
+
+# Build Spindle as user
+USER ${USER}
+RUN bash ./build_spindle.sh
+
+# Fail the build if Spindle was not configured for rsh launch (see the script).
+COPY ${SHARED_ROOT}/scripts/check_launch_mode.sh.podman /check_launch_mode.sh
+USER root
+RUN chmod +rx /check_launch_mode.sh
+RUN /check_launch_mode.sh rsh /home/${USER}/Spindle-build
+
+# The entrypoint wrapper starts sshd and then runs the common Slurm entrypoint.
+COPY ${SHARED_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint-common.sh
+COPY ${BUILD_ROOT}/scripts/entrypoint.sh.podman /home/${USER}/entrypoint.sh
+RUN chmod +rx /home/${USER}/entrypoint-common.sh /home/${USER}/entrypoint.sh && \
+    chown ${USER}:${USER} /home/${USER}/entrypoint-common.sh /home/${USER}/entrypoint.sh
+
+USER ${USER}
+ENV PATH /home/${USER}/Spindle-inst/bin:$PATH
+
+ENTRYPOINT /bin/bash ./entrypoint.sh

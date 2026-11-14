@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#
+# Fails the image build when Spindle was configured for the wrong daemon launch mode.
+# Usage: check_launch_mode.sh <srun|rsh|plugin> <spindle-build-dir>
+#
+#   srun: HAVE_SRUN_EXTERNAL_LAUNCHER must be 1 (Slurm >= 23.11).  Otherwise Spindle starts its
+#         daemons in a job step that takes every CPU and the application step never gets one.
+#         configure picks this by running `srun --version`, which fails without a slurm.conf
+#         (see setup_slurm.sh.podman).
+#   rsh:  RSHLAUNCH_ENABLED must be 1: Spindle starts its daemons over ssh (--with-rsh-launch).
+#   plugin: ENABLE_SLURM_PLUGIN must be 1 and libspindleslurm.so must be installed (next to the
+#         build directory, in Spindle-inst/lib): slurmd loads it through plugstack.conf.
+
+mode=${1:?usage: $0 <srun|rsh|plugin> <build-dir>}
+dir=${2:?usage: $0 <srun|rsh|plugin> <build-dir>}
+
+headers=$(find "$dir" -name config.h 2>/dev/null)
+if [ -z "$headers" ]; then
+    echo "ERROR: no config.h found under $dir"
+    exit 1
+fi
+
+case "$mode" in
+    srun)
+        echo "srun version seen at build time: $(srun --version 2>&1 | head -1)"
+        # shellcheck disable=SC2086  # the list of files is intentionally word-split
+        found=$(grep -H '^#define HAVE_SRUN_EXTERNAL_LAUNCHER' $headers)
+        if [ -z "$found" ]; then
+            echo "ERROR: no config.h defines HAVE_SRUN_EXTERNAL_LAUNCHER (it is defined in every build)"
+            exit 1
+        fi
+        echo "$found"
+        if printf '%s\n' "$found" | grep -qvE ' 1[[:space:]]*$'; then
+            echo "ERROR: Spindle was configured without --external-launcher support."
+            echo "       Its srun daemon launch would starve the application of CPUs."
+            exit 1
+        fi
+        ;;
+    rsh)
+        # shellcheck disable=SC2086
+        found=$(grep -H '^#define RSHLAUNCH_ENABLED' $headers)
+        echo "${found:-no config.h defines RSHLAUNCH_ENABLED}"
+        if ! printf '%s\n' "$found" | grep -qE ' 1[[:space:]]*$'; then
+            echo "ERROR: Spindle was not configured with --with-rsh-launch."
+            exit 1
+        fi
+        ;;
+    plugin)
+        # shellcheck disable=SC2086
+        found=$(grep -H '^#define ENABLE_SLURM_PLUGIN' $headers)
+        echo "${found:-no config.h defines ENABLE_SLURM_PLUGIN}"
+        if ! printf '%s\n' "$found" | grep -qE ' 1[[:space:]]*$'; then
+            echo "ERROR: Spindle was not configured with --enable-slurm-plugin."
+            exit 1
+        fi
+        lib="$(dirname "$dir")/Spindle-inst/lib/libspindleslurm.so"
+        if [ ! -f "$lib" ]; then
+            echo "ERROR: $lib was not built or installed (the SPANK plugin needs Slurm's headers, spank.h)."
+            echo "       Installed under $(dirname "$dir")/Spindle-inst/lib:"
+            find "$(dirname "$dir")/Spindle-inst/lib" -mindepth 1 -maxdepth 1 -printf '         %f\n' 2>&1
+            exit 1
+        fi
+        echo "plugin library present: $lib"
+        ;;
+    *)
+        echo "ERROR: unknown launch mode '$mode' (expected srun, rsh or plugin)"
+        exit 1
+        ;;
+esac
+echo "launch mode '$mode' is configured as expected"
