@@ -26,6 +26,8 @@
 #     CLUSTER_WORKERS=N     worker count (default 4)
 #     CLUSTER_KEEP=1        leave the cluster running for inspection (cluster_down does nothing)
 #     CLUSTER_MARIADB_IMAGE image for the database (default: T_PULL[mariadb] in targets.sh)
+#     CLUSTER_RUN_ARGS="..." extra `podman run` options for the Slurm containers (not MariaDB),
+#                           e.g. uid maps; test-spindle-slurm.sh fills it from T_RUN_ARGS
 #     CLUSTER_TEST_TIMEOUT=N seconds without a new test starting before a run is declared hung
 #                           (default 600; 0 disables).  A snapshot is then taken and the run aborted.
 
@@ -198,8 +200,10 @@ cl_run_slurm() {
     local role=$1 name=$2
     shift 2
     cl_refresh_addhost
+    # shellcheck disable=SC2086  # CLUSTER_RUN_ARGS is a list of options, intentionally word-split
     podman run -d --name "$name" --hostname "$name" --network "$CL_NET" \
         ${CL_ADDHOST[@]+"${CL_ADDHOST[@]}"} \
+        ${CLUSTER_RUN_ARGS-} \
         -e SLURM_ROLE="$role" \
         -e SLURM_HEAD_NODE="$CL_PREFIX-head" \
         -e SLURM_DB_HOST="$CL_PREFIX-db" \
@@ -411,6 +415,9 @@ cl_snapshot_report() {
     # /var/log/slurm is not readable by the test user; the image gives it passwordless sudo.
     cl_pxsh "$p-head" 'sudo tail -n 25 /var/log/slurm/slurmctld.log'
     cl_pxsh "$p-node-1" 'sudo tail -n 25 /var/log/slurm/slurmd.log'
+
+    cl_hdr "sshd log on node-1 (only the rshlaunch images run sshd)"
+    cl_pxsh "$p-node-1" 'if [ -f /tmp/sshd.log ]; then sudo tail -n 30 /tmp/sshd.log; else echo "(no /tmp/sshd.log: not an rshlaunch image)"; fi'
 
     cl_hdr "where is it blocked?  (gdb backtraces, best effort)"
     cl_backtrace "$p-head" spindle

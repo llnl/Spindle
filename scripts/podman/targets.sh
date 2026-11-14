@@ -10,6 +10,8 @@
 #                 building (set it INSTEAD of T_IMAGE/T_DOCKERFILE)
 #   T_CONTEXT     build context, relative to the repo root     default: repo root
 #   T_BUILD_ARGS  extra `podman build` options (word-split)    default: none
+#   T_RUN_ARGS    extra `podman run` options for the Slurm     default: none
+#                 containers of a cluster target (word-split)
 #   T_PREREQ      targets whose images must exist first        default: none
 #                 (space-separated; fetched in order if missing)
 #   T_PRESTEP     shell command run in repo root before build  default: none
@@ -19,9 +21,9 @@
 #   T_DESC        one-line description for `help`              required
 
 # shellcheck disable=SC2034  # all variables here are consumed by the scripts that source this file
-declare -A T_IMAGE T_DOCKERFILE T_PULL T_CONTEXT T_BUILD_ARGS T_PREREQ T_PRESTEP T_BASELINE T_TEST T_DESC
+declare -A T_IMAGE T_DOCKERFILE T_PULL T_CONTEXT T_BUILD_ARGS T_RUN_ARGS T_PREREQ T_PRESTEP T_BASELINE T_TEST T_DESC
 
-TARGETS=(serial slurm-base mariadb slurm-srun)
+TARGETS=(serial slurm-base mariadb slurm-srun slurm-rshlaunch)
 
 T_IMAGE[serial]=spindle-serial-ubuntu
 T_DOCKERFILE[serial]=containers/spindle-serial-ubuntu/Dockerfile.podman
@@ -45,8 +47,21 @@ T_DOCKERFILE[slurm-srun]=containers/spindle-slurm-ubuntu/testing-srun/Dockerfile
 T_BUILD_ARGS[slurm-srun]="--build-arg replicas=4"
 T_PREREQ[slurm-srun]="mariadb slurm-base"
 T_BASELINE[slurm-srun]=300  # 13Nov2026 rzadams: observed 217-220s
-T_TEST[slurm-srun]=scripts/podman/test-spindle-slurm-srun.sh
+T_TEST[slurm-srun]=scripts/podman/test-spindle-slurm.sh
 T_DESC[slurm-srun]="Slurm cluster, srun launcher (needs the slurm-base and mariadb images)"
+
+# Slurm with Spindle starting its daemons over ssh (--with-rsh-launch).  sshd drops privileges to
+# uid/gid 65534 for every login, which rootless podman does not map by default, so logins were reset
+# ("Connection reset by ... port 22").  The maps below are from LLNL's container "gotchas" page; the
+# ranges must fit inside /etc/subuid (2048 ids here).  `spindle-podman diagnose ssh` tests this.
+T_IMAGE[slurm-rshlaunch]=spindle-slurm-rshlaunch
+T_DOCKERFILE[slurm-rshlaunch]=containers/spindle-slurm-ubuntu/testing/Dockerfile.podman
+T_BUILD_ARGS[slurm-rshlaunch]="--build-arg replicas=4"
+T_RUN_ARGS[slurm-rshlaunch]="--uidmap 0:0:2000 --uidmap 65534:2000:2 --gidmap 0:0:2000 --gidmap 65534:2000:2"
+T_PREREQ[slurm-rshlaunch]="mariadb slurm-base"
+T_BASELINE[slurm-rshlaunch]=400  # 13Nov2026 rzadams: observed 289s
+T_TEST[slurm-rshlaunch]=scripts/podman/test-spindle-slurm.sh
+T_DESC[slurm-rshlaunch]="Slurm cluster, Spindle daemons launched over ssh (needs slurm-base and mariadb)"
 
 # Name prefix of the clusters created by test scripts (<prefix>-<id>-head, ...); `cleanup`
 # removes their networks.  Containers are matched by the "spindle|slurm" name filter.

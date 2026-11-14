@@ -28,7 +28,7 @@ else
 fi
 
 # Source common podman utilities
-# shellcheck source=scripts/podman/env.sh
+# shellcheck source=scripts/podman/env.sh disable=SC1091
 source "$REPO_ROOT/scripts/podman/env.sh"
 # shellcheck source=scripts/podman/common.sh disable=SC1091
 source "$REPO_ROOT/scripts/podman/common.sh"
@@ -441,6 +441,7 @@ cmd_test() {
     init_state
 
     local test_script="$REPO_ROOT/${T_TEST[$target]}"
+    export SPINDLE_PODMAN_TARGET="$target"
 
     if [[ ! -f "$test_script" ]]; then
         echo -e "${RED}Error:${RESET} Test script not found: $test_script"
@@ -678,44 +679,74 @@ cmd_save() {
         return 1
     fi
 
-    local limit_gb="${SAVE_MAX_GB:-8}"
-    local total limit
-    total=$(images_size_bytes "${images[@]}")
-    limit=$((limit_gb * 1024 * 1024 * 1024))
+    # The limit applies to the tarball as it is written, not to a prediction: image sizes counted
+    # per image include shared layers again and again (5 images summed to 9.2 GB; the tarball was ~4 GB).
+    local limit_gb="${SAVE_MAX_GB:-12}"
+    local sum limit prev=0
+    sum=$(images_size_bytes "${images[@]}")
+    limit=$(awk -v g="$limit_gb" 'BEGIN { printf "%d", g * 1073741824 }')
+    [[ -f "$dest" ]] && prev=$(stat -c %s "$dest")
     echo "Images to save:"
     printf '  %s\n' "${images[@]}"
-    echo "Total image size: $(human_bytes "$total")  (the tarball shares layers, so it will usually be smaller)"
-    echo "Destination:      $dest"
-
-    if (( total > limit )) && ! $force; then
-        echo -e "${RED}Refusing:${RESET} images total $(human_bytes "$total"), above the ${limit_gb} GB limit."
-        echo "A runaway tarball once grew to hundreds of GB.  Check 'podman images', or override with"
-        echo "--force or SAVE_MAX_GB=<n>."
-        return 1
+    echo "Sum of image sizes: $(human_bytes "$sum")  (shared layers are counted once per image; the tarball stores them once)"
+    echo "Destination:        $dest"
+    if (( prev > 0 )); then
+        echo "Existing tarball:   $(human_bytes "$prev"), replaced only if this save succeeds"
     fi
+    echo "Size limit:         ${limit_gb} GB for the tarball itself (SAVE_MAX_GB; --force disables it)"
 
-    local cmd=(podman save --multi-image-archive -o "$dest.partial.$$" "${images[@]}")
+    local part="$dest.partial.$$"
+    local cmd=(podman save --multi-image-archive -o "$part" "${images[@]}")
     if $dry_run; then
         printf '+'; printf ' %q' "${cmd[@]}"; echo
-        echo "+ mv $dest.partial.$$ $dest"
+        echo "+ mv $part $dest"
         return 0
     fi
 
     mkdir -p "$(dirname "$dest")"
-    local start=$SECONDS
-    if ! "${cmd[@]}"; then
-        rm -f -- "$dest.partial.$$"
-        echo -e "${RED}✗${RESET} podman save failed"
+    local start=$SECONDS spid rc=0 exceeded=false size=0
+    "${cmd[@]}" &
+    spid=$!
+    # shellcheck disable=SC2064  # $spid and $part are fixed for this save
+    trap "kill $spid 2>/dev/null; rm -f -- '$part'; trap - INT TERM; echo; echo 'save interrupted; the existing tarball is untouched'; return 130" INT TERM
+
+    while kill -0 "$spid" 2>/dev/null; do
+        sleep 1
+        size=$(stat -c %s "$part" 2>/dev/null || echo 0)
+        if (( size > limit )) && ! $force; then
+            exceeded=true
+            kill "$spid" 2>/dev/null
+            break
+        fi
+    done
+    # spindle-podman runs under `set -e`: a nonzero status from wait must not end the script here.
+    wait "$spid" 2>/dev/null || rc=$?
+    trap - INT TERM
+
+    if $exceeded; then
+        rm -f -- "$part"
+        echo -e "${RED}✗${RESET} Stopped: the tarball passed ${limit_gb} GB ($(human_bytes "$size") written) and was still growing."
+        echo "  The partial file was removed and the existing tarball is untouched."
+        echo "  Check 'podman images' for strays.  If this size is expected: SAVE_MAX_GB=<n> or --force."
         log_metric "save" "images" "$((SECONDS - start))s" "failed"
         return 1
     fi
-    mv -f -- "$dest.partial.$$" "$dest"
+    if (( rc != 0 )); then
+        rm -f -- "$part"
+        echo -e "${RED}✗${RESET} podman save failed (status $rc)"
+        log_metric "save" "images" "$((SECONDS - start))s" "failed"
+        return 1
+    fi
+    mv -f -- "$part" "$dest"
 
     local bytes secs=$((SECONDS - start))
     bytes=$(stat -c %s "$dest")
     echo -e "${GREEN}✓${RESET} Saved ${#images[@]} images to $dest: $(human_bytes "$bytes") in ${secs}s"
+    if (( prev > 0 && bytes * 2 > prev * 3 )); then
+        echo -e "${YELLOW}⚠${RESET}  The tarball is more than 1.5x the previous one ($(human_bytes "$prev")).  Expected if images were added."
+    fi
     if (( bytes > limit )); then
-        echo -e "${YELLOW}⚠${RESET}  Tarball exceeds ${limit_gb} GB"
+        echo -e "${YELLOW}⚠${RESET}  Tarball exceeds ${limit_gb} GB (allowed by --force)"
     fi
     log_metric "save" "images" "${secs}s" "success"
 }
@@ -818,6 +849,10 @@ cmd_diagnose() {
             # probe-dns.sh creates a throwaway network and two containers; see its header.
             bash "$REPO_ROOT/scripts/podman/probe-dns.sh" "$@"
             ;;
+        ssh)
+            # probe-ssh.sh runs sshd in a throwaway container, with and without the uid maps.
+            bash "$REPO_ROOT/scripts/podman/probe-ssh.sh" "$@"
+            ;;
         hang|snapshot)
             # A fresh shell: the cluster helpers are not written to run under `set -e`.
             bash -c 'source "$1/scripts/podman/cluster.sh"; cluster_snapshot "$2" "" diagnose' _ "$REPO_ROOT" "${1:-slurm-srun-1}"
@@ -866,6 +901,8 @@ spindle-podman test <target> [options]
 
   Run the testsuite for <target> in containers and record the result (status shows it).
   Cluster targets bring up a Slurm cluster, run the tests, and tear it down, always.
+  Extra container options for a target (uid maps for rshlaunch) are T_RUN_ARGS in targets.sh;
+  CLUSTER_RUN_ARGS in the environment overrides them, even when empty.
 
   --repeat N, -r N  Run N times; stop at the first failure.
   --background, -b  Run in the background.
@@ -917,9 +954,12 @@ spindle-podman save [target...] [--dry-run|-n] [--force|-f] [--output|-o PATH]
   rebuilding (about 15 minutes).  With no targets, saves every image present on this node,
   built or pulled.  Images not present are skipped and listed.
 
-  The tarball is written under a temporary name and renamed on success.  Save refuses when the
-  images total more than SAVE_MAX_GB (default 8) unless --force: a tarball once grew to hundreds
-  of GB unnoticed.
+  The tarball is written under a temporary name and renamed on success, so a failed or
+  interrupted save leaves the existing tarball untouched.  While it is written, the file's size
+  is watched: past SAVE_MAX_GB (default 12, decimals allowed) the save is stopped and the partial
+  file removed, unless --force.  A tarball once grew to hundreds of GB unnoticed.  It warns when
+  the result is more than 1.5x the previous tarball.  (The "sum of image sizes" it prints counts
+  shared layers once per image and is only a hint; the tarball is far smaller.)
 
   Default path: $SPINDLE_PODMAN_IMAGES, else <workspace>/tmp/podman-images/spindle-images.tar
 EOF
@@ -955,6 +995,9 @@ spindle-podman diagnose <topic> [args]
                       whether container names resolve (IP routing, the resolver, aardvark-dns,
                       names, the /etc/hosts fallback).  PROBE_TIMEOUT=N sets seconds per check.
                       Needs the slurm-base image (or pass another image name).
+  ssh                 Start sshd in a throwaway container and log in to it, with podman's default
+                      id mapping and again with the extra uid/gid maps (uid/gid 65534) that the
+                      rshlaunch target uses.  Shows which one works.  Needs the slurm-base image.
   hang [prefix]       Collect evidence from a cluster that looks stuck (default slurm-srun-1):
                       processes with kernel wait channels, sockets, slurm state, Spindle debug
                       logs, gdb backtraces, podman/crun state.  Passwords are redacted.
@@ -1000,7 +1043,7 @@ Commands:
   test <target>      Run the testsuite in containers
   save               Save images to a tarball on shared storage
   load               Load that tarball on a new node
-  diagnose <topic>   dns: test container name resolution; hang: collect evidence from a stuck cluster
+  diagnose <topic>   dns / ssh: probe the container network and sshd; hang: evidence from a stuck cluster
   env                Print the XDG_RUNTIME_DIR export, for podman commands typed by hand
   logs [N]           Show recent log sessions
   cleanup            Remove containers and networks (gentle)
@@ -1041,7 +1084,7 @@ EOF
 
 Environment (each is also described under the command that uses it):
   SPINDLE_PODMAN_IMAGES        tarball path for save/load
-  SAVE_MAX_GB                  save refuses above this many GB (default 8)
+  SAVE_MAX_GB                  save stops if the tarball grows past this many GB (default 12)
   SPINDLE_PODMAN_RUNTIME_DIR   where podman keeps runtime state (default /var/tmp/$USER/xdg-runtime)
   CLUSTER_WORKERS              Slurm workers per cluster (default 4)
   CLUSTER_KEEP=1               leave the cluster running after a test (same as test --keep)
@@ -1049,6 +1092,7 @@ Environment (each is also described under the command that uses it):
   CLUSTER_MARIADB_IMAGE        database image (default: the mariadb target's reference)
   SPINDLE_DEBUG=N              Spindle debug level in the testsuite (same as test --debug)
   PROBE_TIMEOUT                seconds per check in diagnose dns (default 5)
+  CLUSTER_RUN_ARGS             extra podman run options for the Slurm containers (default: the target's)
 
 Files:
   .podman-state.json   what is built and the last results      .podman-metrics.log  timings

@@ -59,16 +59,26 @@ and `rzadams1017`.
     ✓ `spindle-podman status`
     ✓ `spindle-podman help`
     ✓ `spindle-podman save`
+    ✓ `spindle-podman load`
+    ✓ `diagnose ssh`
 
     ✓ `spindle-podman build serial`
     ✓ `spindle-podman build mariadb`
     ✓ `spindle-podman build slurm-base`
     ✓ `spindle-podman build slurm-srun`
+    ✓ `build slurm-rshlaunch` (289s) 
 
     ✓ `spindle-podman test serial`
     ✓ `spindle-podman test slurm-srun`
+    ✓ `test slurm-rshlaunch` (200s)
+
 
 # Manifest (last updated 13Nov2026)
+        containers/spindle-slurm-ubuntu/
+        containers/spindle-slurm-ubuntu/
+        containers/spindle-slurm-ubuntu/
+        scripts/podman/probe-ssh.sh
+        scripts/podman/
 
 All new unless marked (modified).  Files with a .podman suffix are podman variants of devel's
 files; devel's originals are untouched, so the GitHub workflows are unaffected.
@@ -92,6 +102,7 @@ scripts/podman/
   test-spindle-serial.sh        Serial test: one container, munge check, testsuite.
   test-spindle-slurm-srun.sh    srun test: cluster_up, testsuite, cluster_down (always).
   probe-dns.sh                  `diagnose dns`: tests container name resolution layer by layer.
+  test-spindle-slurm.sh
 
 containers/spindle-serial-ubuntu/
   Dockerfile.podman             Serial image.  PODMAN_BUILD=true works around apt's setgroups error.
@@ -114,7 +125,9 @@ containers/spindle-slurm-ubuntu/
   testing-srun/scripts/entrypoint.sh.podman
                                 Renders the configs from the templates, then starts the daemon
                                 named by SLURM_ROLE (db, ctl, worker).  Never prints the password.
-
+  testing-srun/scripts/check_launch_mode.sh.podman
+  testing/Dockerfile.podman
+  testing/scripts/entrypoint.sh.podman
 Generated, not committed:
   .podman-state.json  .podman-metrics.log  .podman-logs/    State, timings, per-run logs and snapshots.
   <workspace>/tmp/podman-images/spindle-images.tar          Saved images (3.9 GB), outside the repo.
@@ -177,25 +190,12 @@ Hypothesis, not verified.  Plan: pin XDG_RUNTIME_DIR in spindle-podman and the p
 `slurm-srun` passes.
 
 # Current Commit
-  [podman-port] srun cluster test passes under rootless podman
+[podman-port] slurm-rshlaunch target passes; one test script for all Slurm flavors
 
-  Adds `spindle-podman test slurm-srun`: a 4-worker Slurm cluster (MariaDB,
-  slurmdbd, slurmctld) in rootless podman, running the Spindle testsuite
-  (138 s end to end).
+sshd needs uid/gid 65534, which rootless podman does not map by default, so
+ssh logins were reset.  The target adds --uidmap/--gidmap for 65534 to the
+Slurm containers (T_RUN_ARGS, from LLNL's container gotchas page).
+`diagnose ssh` shows it: login fails by default, works with the maps.
 
-  New targets and commands: slurm-srun and mariadb (pulled) targets; save,
-  load, env, diagnose; per-command help and typical workflows.
-
-  Findings that shaped the design (details in STATE.md):
-  - netavark starts aardvark-dns through `systemd-run --user`, which fails
-    without /run/user/<uid>; the cluster helper starts aardvark-dns itself.
-  - Spindle's configure picks its srun launch mode from `srun --version`,
-    which fails without a slurm.conf; the image now ships a stub so Spindle
-    gets --external-launcher.  A build guard fails the image if it does not.
-  - podman state follows XDG_RUNTIME_DIR, which moves when a login session
-    appears; spindle-podman pins it.
-
-  Also: hang detection with automatic snapshot (redacted), readiness polling
-  instead of sleeps, per-target build baselines, pulled-image targets, and
-  removal of the per-target build scripts.
-
+Also: test-spindle-slurm.sh replaces the srun-only script; build guard shared
+as check_launch_mode.sh.podman (checks srun or rsh mode).

@@ -43,17 +43,11 @@ RUN chmod +rx /home/${USER}/build_spindle.sh && \
 USER ${USER}
 RUN bash ./build_spindle.sh
 
-# Fail the build if Spindle was configured for the wrong srun launch mode: HAVE_SRUN_EXTERNAL_LAUNCHER
-# must be 1 on Slurm >= 23.11.  (See setup_slurm.sh.podman for why this went wrong once.)
-RUN files=$(find /home/${USER}/Spindle-build -name config.h -print0 | xargs -0 grep -l HAVE_SRUN_EXTERNAL_LAUNCHER 2>/dev/null || true); \
-    echo "srun version seen at build time: $(srun --version 2>&1 | head -1)"; \
-    echo "config.h files that define the launch mode: ${files:-none}"; \
-    [ -z "$files" ] || grep -H '^#define HAVE_SRUN_EXTERNAL_LAUNCHER' $files; \
-    if [ -z "$files" ]; then echo "ERROR: no config.h defines HAVE_SRUN_EXTERNAL_LAUNCHER (it is defined in every build)"; exit 1; fi; \
-    if grep -h '^#define HAVE_SRUN_EXTERNAL_LAUNCHER' $files | grep -qvE ' 1[[:space:]]*$'; then \
-        echo "ERROR: Spindle was configured without --external-launcher support."; \
-        echo "       Its srun daemon launch would starve the application of CPUs."; exit 1; \
-    fi
+# Fail the build if Spindle was configured for the wrong srun launch mode (see the script).
+COPY ${BUILD_ROOT}/scripts/check_launch_mode.sh.podman /check_launch_mode.sh
+USER root
+RUN chmod +rx /check_launch_mode.sh
+RUN /check_launch_mode.sh srun /home/${USER}/Spindle-build
 
 # Copy entrypoint as root
 USER root
